@@ -41,7 +41,10 @@ jobs:
           # This broad compatibility exception applies through explicit entry
           # on this disposable CI VM. It is not a tight AppArmor sandbox.
           # No executable attachment or profile transition replaces host policy.
-          profile relay-ci {
+          # Bubblewrap retains procfs descriptors across pivot_root for ID maps.
+          # This flag permits that disconnected-path lookup. It can alias paths,
+          # so this broad CI profile is not a filesystem confinement boundary.
+          profile relay-ci flags=(attach_disconnected) {
             file rwlkm /{**,},
             /** ix,
             capability,
