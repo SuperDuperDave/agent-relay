@@ -1,0 +1,690 @@
+"""Validated, deliberately small protocol for the Relay ledger.
+
+Relay records coordination facts, not agent transcripts.  The validator is
+therefore intentionally restrictive: one-line summaries, bounded identifiers,
+and event-specific metadata keys.  If a new fact does not fit, extend the
+protocol deliberately instead of pouring an opaque hook payload into SQLite.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import hashlib
+import json
+import re
+import unicodedata
+import uuid
+from typing import Any, Mapping
+
+
+PROTOCOL_VERSION = 1
+
+PUBLIC_EVENT_KINDS = frozenset(
+    {
+        "session.started",
+        "turn.completed",
+        "turn.interrupted",
+        "session.ended",
+        "work.intent",
+        "work.blocked",
+        "work.handoff",
+        "review.requested",
+        "friction.observed",
+        "ratchet.decided",
+        "ratchet.verified",
+    }
+)
+INTERNAL_EVENT_KINDS = frozenset(
+    {
+        "claim.acquired",
+        "claim.released",
+        "claim.broken",
+        "decision.requested",
+        "decision.responded",
+        "delivery.acknowledged",
+    }
+)
+EVENT_KINDS = PUBLIC_EVENT_KINDS | INTERNAL_EVENT_KINDS
+
+FRICTION_CATEGORIES = frozenset(
+    {
+        "coordination",
+        "context",
+        "environment",
+        "tooling",
+        "verification",
+        "workflow",
+        "other",
+    }
+)
+RATCHET_MODES = frozenset({"drop", "subtract", "promote"})
+RATCHET_OUTCOMES = frozenset({"improved", "unchanged", "worse"})
+DECISION_AUTHORITY_HINTS = frozenset({"engineering", "uncertain"})
+DECISION_RESOLUTIONS = frozenset(
+    {"choice", "directive", "escalate", "needs-evidence"}
+)
+DECISION_AUTHORITY_CLASSES = frozenset(
+    {
+        "engineering",
+        "human-only",
+        "external-authorization",
+        "undetermined",
+    }
+)
+DECISION_ROLLOUT_FENCE = "active-clients-refreshed"
+
+_EVENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$")
+_RESOURCE_ALIASES = {
+    "integrate:main": "integration:main",
+}
+_IDENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/+\-]{0,199}$")
+_FINGERPRINT_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,79}$")
+_DECISION_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,79}$")
+_DECISION_OPTION_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+_DECISION_ARTIFACT_RE = re.compile(r"^git:[0-9a-f]{40}$")
+_RESOURCE_RE = re.compile(
+    r"^[a-z][a-z0-9-]{0,31}:[a-z0-9][a-z0-9._/+\-]{0,159}$"
+)
+_ARTIFACT_RE = re.compile(
+    r"^(?:git:(?:[0-9a-f]{40}|[0-9a-f]{64})|sha256:[0-9a-f]{64}|receipt:[A-Za-z0-9._:/+\-]{1,180})$"
+)
+_SECRET_KEY_RE = re.compile(
+    r"(?:authorization|cookie|credential|password|private[_-]?key|secret|token)", re.I
+)
+_SECRET_VALUE_RES = (
+    re.compile(r"\bBearer\s+\S+", re.I),
+    re.compile(r"\b(?:sk[-_]|ghp_|github_pat_|sb_secret_)[A-Za-z0-9_-]{12,}\b", re.I),
+    re.compile(r"\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}"),
+    re.compile(r"[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@", re.I),
+    re.compile(
+        r"\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY)\s*=",
+        re.I,
+    ),
+    re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----", re.I),
+)
+
+_META_KEYS: dict[str, frozenset[str]] = {
+    "session.started": frozenset({"client", "branch", "commit", "worktree"}),
+    "turn.completed": frozenset({"client", "branch", "commit", "worktree"}),
+    "turn.interrupted": frozenset({"client", "branch", "commit", "worktree"}),
+    "session.ended": frozenset({"client", "branch", "commit", "worktree"}),
+    "work.intent": frozenset(
+        {
+            "resource",
+            "commit_oid",
+            "commit_subject",
+            "relay_trailers_sha256",
+            "evidence_sha256",
+        }
+    ),
+    "work.blocked": frozenset(
+        {
+            "resource",
+            "reason",
+            "commit_oid",
+            "commit_subject",
+            "relay_trailers_sha256",
+            "evidence_sha256",
+        }
+    ),
+    "work.handoff": frozenset(
+        {"commit_oid", "commit_subject", "relay_trailers_sha256", "evidence_sha256"}
+    ),
+    "review.requested": frozenset(
+        {"commit_oid", "commit_subject", "relay_trailers_sha256", "evidence_sha256"}
+    ),
+    "friction.observed": frozenset(
+        {"fingerprint", "category", "cost_seconds", "position", "proposal"}
+    ),
+    "ratchet.decided": frozenset(
+        {"fingerprint", "mode", "home", "verify_when"}
+    ),
+    "ratchet.verified": frozenset(
+        {
+            "fingerprint",
+            "outcome",
+            "decision_seq",
+            "drop_compatibility",
+            "before_cost_seconds",
+            "after_cost_seconds",
+            "evidence",
+        }
+    ),
+    "claim.acquired": frozenset(
+        {"claim_id", "resource", "holder_agent", "holder_session", "purpose"}
+    ),
+    "claim.released": frozenset(
+        {"claim_id", "resource", "holder_agent", "holder_session"}
+    ),
+    "claim.broken": frozenset(
+        {
+            "claim_id",
+            "resource",
+            "holder_agent",
+            "holder_session",
+            "actor_agent",
+            "actor_session",
+            "reason",
+        }
+    ),
+    "delivery.acknowledged": frozenset(
+        {"signal_seq", "signal_event_id", "target_agent"}
+    ),
+    "decision.requested": frozenset(
+        {"decision_id", "authority_hint", "option_ids"}
+    ),
+    "decision.responded": frozenset(
+        {
+            "decision_id",
+            "request_seq",
+            "request_event_id",
+            "resolution",
+            "authority_class",
+            "choice",
+        }
+    ),
+}
+
+
+class RelayError(RuntimeError):
+    """Base error with a stable process exit code."""
+
+    exit_code = 1
+
+
+class ValidationError(RelayError):
+    exit_code = 64
+
+
+class StateError(RelayError):
+    exit_code = 74
+
+
+class BusyError(RelayError):
+    exit_code = 75
+
+
+class ConflictError(RelayError):
+    exit_code = 73
+
+
+@dataclass(frozen=True)
+class Event:
+    v: int
+    event_id: str
+    kind: str
+    agent: str
+    session: str
+    summary: str
+    work_id: str | None
+    target: str | None
+    scope: str | None
+    artifact: str | None
+    meta: dict[str, str | int | bool | list[str]]
+    canonical_json: str
+    body_hash: str
+
+    def as_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "v": self.v,
+            "id": self.event_id,
+            "kind": self.kind,
+            "agent": self.agent,
+            "session": self.session,
+            "summary": self.summary,
+        }
+        for key, value in (
+            ("work_id", self.work_id),
+            ("target", self.target),
+            ("scope", self.scope),
+            ("artifact", self.artifact),
+        ):
+            if value is not None:
+                out[key] = value
+        if self.meta:
+            out["meta"] = dict(self.meta)
+        return out
+
+
+def new_event_id(prefix: str = "evt") -> str:
+    return f"{prefix}:{uuid.uuid4().hex}"
+
+
+def canonical_json(value: Mapping[str, Any]) -> str:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+
+
+def canonical_resource(value: str) -> str:
+    resource = _one_line("resource", value, 192).lower()
+    if not _RESOURCE_RE.fullmatch(resource):
+        raise ValidationError(
+            "resource must be canonical namespace:name text (for example deploy:ota)"
+        )
+    return _RESOURCE_ALIASES.get(resource, resource)
+
+
+def canonical_agent(value: Any) -> str:
+    """Validate an agent identifier at read-only command boundaries."""
+
+    return _identifier("agent", value)
+
+
+def canonical_work_id(value: Any) -> str:
+    """Return one exact canonical work identifier for decision routing."""
+
+    work_id = _identifier("work_id", value)
+    if work_id != value:
+        raise ValidationError("work_id must be an exact canonical identifier")
+    return work_id
+
+
+def canonical_decision_id(value: Any) -> str:
+    decision_id = _one_line("decision_id", value, 80)
+    if decision_id != value or not _DECISION_ID_RE.fullmatch(decision_id):
+        raise ValidationError(
+            "decision_id must be an exact lowercase canonical slug"
+        )
+    return decision_id
+
+
+def canonical_decision_option(value: Any) -> str:
+    option = _one_line("decision option", value, 32)
+    if option != value or not _DECISION_OPTION_RE.fullmatch(option):
+        raise ValidationError(
+            "decision option must be an exact lowercase canonical identifier"
+        )
+    return option
+
+
+def normalize_event(raw: Mapping[str, Any], *, internal: bool = False) -> Event:
+    if not isinstance(raw, Mapping):
+        raise ValidationError("event must be a JSON object")
+
+    allowed_fields = {
+        "v",
+        "id",
+        "kind",
+        "agent",
+        "session",
+        "work_id",
+        "target",
+        "scope",
+        "summary",
+        "artifact",
+        "meta",
+    }
+    unknown = sorted(set(raw) - allowed_fields)
+    if unknown:
+        raise ValidationError(f"unknown event fields: {', '.join(unknown)}")
+
+    version = raw.get("v", PROTOCOL_VERSION)
+    if version != PROTOCOL_VERSION:
+        raise ValidationError(
+            f"unsupported event protocol version {version!r}; expected {PROTOCOL_VERSION}"
+        )
+
+    kind = _one_line("kind", raw.get("kind"), 64)
+    if kind not in EVENT_KINDS:
+        raise ValidationError(f"unsupported event kind: {kind}")
+    if kind in INTERNAL_EVENT_KINDS and not internal:
+        raise ValidationError(
+            f"{kind} is emitted only by a dedicated Relay transaction"
+        )
+
+    event_id = raw.get("id") or new_event_id()
+    event_id = _one_line("id", event_id, 200)
+    if not _EVENT_ID_RE.fullmatch(event_id):
+        raise ValidationError("event id contains unsupported characters or is too short")
+
+    agent = _identifier("agent", raw.get("agent"))
+    session = _identifier("session", raw.get("session"))
+    summary = _one_line("summary", raw.get("summary"), 500)
+
+    work_id = _optional_identifier("work_id", raw.get("work_id"))
+    if kind == "work.intent" and work_id is None:
+        raise ValidationError("work.intent requires a stable work_id")
+    target = _optional_line("target", raw.get("target"), 200)
+    scope = _optional_line("scope", raw.get("scope"), 240)
+    artifact = _optional_line("artifact", raw.get("artifact"), 200)
+    if artifact is not None and not _ARTIFACT_RE.fullmatch(artifact):
+        raise ValidationError(
+            "artifact must be git:<oid>, sha256:<digest>, or receipt:<stable-id>"
+        )
+    if artifact is not None and artifact.startswith("receipt:"):
+        parts = artifact.removeprefix("receipt:").split("/")
+        if any(part in {"", ".", ".."} for part in parts):
+            raise ValidationError("receipt artifact contains an unsafe path segment")
+    if kind in {"work.handoff", "review.requested"} and artifact is None:
+        raise ValidationError(f"{kind} requires an immutable artifact")
+    if kind in {"decision.requested", "decision.responded"}:
+        if work_id is None:
+            raise ValidationError(f"{kind} requires work_id")
+        if scope is None:
+            raise ValidationError(f"{kind} requires scope")
+        if artifact is None or _DECISION_ARTIFACT_RE.fullmatch(artifact) is None:
+            raise ValidationError(
+                f"{kind} requires an immutable git:<40-hex> artifact"
+            )
+        if len(summary) > 300:
+            raise ValidationError(f"{kind} summary exceeds 300 characters")
+        expected_route = (
+            ("claude", "codex")
+            if kind == "decision.requested"
+            else ("codex", "claude")
+        )
+        if (agent, target) != expected_route:
+            raise ValidationError(
+                f"{kind} requires {expected_route[0]} to {expected_route[1]} routing"
+            )
+
+    meta_raw = raw.get("meta", {})
+    if not isinstance(meta_raw, Mapping):
+        raise ValidationError("meta must be a JSON object")
+    meta = _normalize_meta(kind, meta_raw)
+    _validate_semantics(kind, meta, internal=internal)
+    commit_oid = meta.get("commit_oid")
+    if (
+        artifact is not None
+        and artifact.startswith("git:")
+        and commit_oid is not None
+        and artifact != f"git:{commit_oid}"
+    ):
+        raise ValidationError("git artifact and commit_oid must identify the same object")
+
+    normalized: dict[str, Any] = {
+        "v": PROTOCOL_VERSION,
+        "id": event_id,
+        "kind": kind,
+        "agent": agent,
+        "session": session,
+        "summary": summary,
+    }
+    for key, value in (
+        ("work_id", work_id),
+        ("target", target),
+        ("scope", scope),
+        ("artifact", artifact),
+    ):
+        if value is not None:
+            normalized[key] = value
+    if meta:
+        normalized["meta"] = meta
+
+    encoded = canonical_json(normalized)
+    if len(encoded.encode("utf-8")) > 8_192:
+        raise ValidationError("event exceeds the 8192-byte protocol limit")
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return Event(
+        v=PROTOCOL_VERSION,
+        event_id=event_id,
+        kind=kind,
+        agent=agent,
+        session=session,
+        summary=summary,
+        work_id=work_id,
+        target=target,
+        scope=scope,
+        artifact=artifact,
+        meta=meta,
+        canonical_json=encoded,
+        body_hash=digest,
+    )
+
+
+def _validate_semantics(
+    kind: str,
+    meta: Mapping[str, str | int | bool | list[str]],
+    *,
+    internal: bool,
+) -> None:
+    if kind == "friction.observed":
+        _fingerprint(meta.get("fingerprint"))
+        category = meta.get("category")
+        if category not in FRICTION_CATEGORIES:
+            raise ValidationError(
+                f"friction category must be one of: {', '.join(sorted(FRICTION_CATEGORIES))}"
+            )
+        _optional_nonnegative_int("cost_seconds", meta.get("cost_seconds"))
+    elif kind == "ratchet.decided":
+        _fingerprint(meta.get("fingerprint"))
+        if meta.get("mode") not in RATCHET_MODES:
+            raise ValidationError("ratchet mode must be drop, subtract, or promote")
+        if meta.get("mode") == "drop" and not internal:
+            raise ValidationError(
+                "drop decision is emitted only by the ratchet transaction"
+            )
+        _one_line("home", meta.get("home"), 200)
+        if meta.get("verify_when") is not None:
+            _one_line("verify_when", meta.get("verify_when"), 200)
+    elif kind == "ratchet.verified":
+        _fingerprint(meta.get("fingerprint"))
+        drop_compatibility = meta.get("drop_compatibility")
+        if drop_compatibility is not None and drop_compatibility is not True:
+            raise ValidationError("drop_compatibility must be true when present")
+        if drop_compatibility is True:
+            if not internal:
+                raise ValidationError(
+                    "drop compatibility closure is emitted only by the ratchet transaction"
+                )
+            if meta.get("outcome") != "dropped":
+                raise ValidationError(
+                    "drop compatibility closure requires outcome dropped"
+                )
+            if any(
+                key in meta
+                for key in (
+                    "before_cost_seconds",
+                    "after_cost_seconds",
+                    "evidence",
+                )
+            ):
+                raise ValidationError(
+                    "drop compatibility closure cannot claim empirical verification"
+                )
+        elif meta.get("outcome") not in RATCHET_OUTCOMES:
+            raise ValidationError("ratchet outcome must be improved, unchanged, or worse")
+        decision_seq = meta.get("decision_seq")
+        if not isinstance(decision_seq, int) or isinstance(decision_seq, bool) or decision_seq < 1:
+            raise ValidationError("ratchet verification requires a positive decision_seq")
+        before = _optional_nonnegative_int(
+            "before_cost_seconds", meta.get("before_cost_seconds")
+        )
+        after = _optional_nonnegative_int(
+            "after_cost_seconds", meta.get("after_cost_seconds")
+        )
+        if (before is None) != (after is None):
+            raise ValidationError(
+                "before_cost_seconds and after_cost_seconds must be supplied together"
+            )
+    elif kind in {"work.intent", "work.blocked", "work.handoff", "review.requested"}:
+        commit_oid = meta.get("commit_oid")
+        if commit_oid is not None and (
+            not isinstance(commit_oid, str)
+            or re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", commit_oid) is None
+        ):
+            raise ValidationError("commit_oid must be a full Git object ID")
+        for key in ("evidence_sha256", "relay_trailers_sha256"):
+            digest = meta.get(key)
+            if digest is not None and (
+                not isinstance(digest, str)
+                or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            ):
+                raise ValidationError(f"{key} must be a lowercase SHA-256 digest")
+    elif kind.startswith("claim."):
+        _identifier("claim_id", meta.get("claim_id"))
+        canonical_resource(_required_string("resource", meta.get("resource")))
+    elif kind == "delivery.acknowledged":
+        signal_seq = meta.get("signal_seq")
+        if (
+            not isinstance(signal_seq, int)
+            or isinstance(signal_seq, bool)
+            or signal_seq < 1
+        ):
+            raise ValidationError(
+                "delivery acknowledgement requires a positive signal_seq"
+            )
+        signal_event_id = _one_line(
+            "signal_event_id", meta.get("signal_event_id"), 200
+        )
+        if not _EVENT_ID_RE.fullmatch(signal_event_id):
+            raise ValidationError("signal_event_id contains unsupported characters")
+        _identifier("target_agent", meta.get("target_agent"))
+    elif kind == "decision.requested":
+        canonical_decision_id(meta.get("decision_id"))
+        if meta.get("authority_hint") not in DECISION_AUTHORITY_HINTS:
+            raise ValidationError(
+                "decision authority_hint must be engineering or uncertain"
+            )
+        option_ids = meta.get("option_ids")
+        if option_ids is not None:
+            if not isinstance(option_ids, list) or not 2 <= len(option_ids) <= 8:
+                raise ValidationError(
+                    "decision request requires 2 to 8 options when options are present"
+                )
+            normalized = [canonical_decision_option(item) for item in option_ids]
+            if len(normalized) != len(set(normalized)):
+                raise ValidationError("decision request options must be unique")
+    elif kind == "decision.responded":
+        canonical_decision_id(meta.get("decision_id"))
+        request_seq = meta.get("request_seq")
+        if (
+            not isinstance(request_seq, int)
+            or isinstance(request_seq, bool)
+            or request_seq < 1
+        ):
+            raise ValidationError(
+                "decision response requires a positive request_seq"
+            )
+        request_event_id = _one_line(
+            "request_event_id", meta.get("request_event_id"), 200
+        )
+        if not _EVENT_ID_RE.fullmatch(request_event_id):
+            raise ValidationError(
+                "decision response request_event_id is invalid"
+            )
+        resolution = meta.get("resolution")
+        authority_class = meta.get("authority_class")
+        if resolution not in DECISION_RESOLUTIONS:
+            raise ValidationError("unsupported decision response resolution")
+        if authority_class not in DECISION_AUTHORITY_CLASSES:
+            raise ValidationError("unsupported decision authority class")
+        allowed_authority = {
+            "choice": frozenset({"engineering"}),
+            "directive": frozenset({"engineering"}),
+            "escalate": frozenset(
+                {"human-only", "external-authorization"}
+            ),
+            "needs-evidence": frozenset({"undetermined"}),
+        }
+        if authority_class not in allowed_authority[resolution]:
+            raise ValidationError(
+                f"{resolution} resolution is incompatible with "
+                f"{authority_class} authority"
+            )
+        choice = meta.get("choice")
+        if resolution == "choice":
+            canonical_decision_option(choice)
+        elif choice is not None:
+            raise ValidationError(
+                "decision choice is allowed only for choice resolution"
+            )
+
+
+def _normalize_meta(
+    kind: str, raw: Mapping[str, Any]
+) -> dict[str, str | int | bool | list[str]]:
+    allowed = _META_KEYS[kind]
+    unknown = sorted(set(raw) - allowed)
+    if unknown:
+        raise ValidationError(
+            f"metadata keys not allowed for {kind}: {', '.join(unknown)}"
+        )
+
+    out: dict[str, str | int | bool | list[str]] = {}
+    for key, value in raw.items():
+        if _SECRET_KEY_RE.search(str(key)):
+            raise ValidationError(f"secret-shaped metadata key rejected: {key}")
+        if isinstance(value, bool):
+            out[str(key)] = value
+        elif isinstance(value, int) and not isinstance(value, bool):
+            if abs(value) > 10**12:
+                raise ValidationError(f"metadata integer is out of range: {key}")
+            out[str(key)] = value
+        elif isinstance(value, str):
+            out[str(key)] = _one_line(f"meta.{key}", value, 500)
+        elif kind == "decision.requested" and key == "option_ids":
+            if not isinstance(value, (list, tuple)):
+                raise ValidationError("decision option_ids must be an array")
+            out[str(key)] = [
+                canonical_decision_option(item) for item in value
+            ]
+        else:
+            raise ValidationError(
+                "metadata values must be strings, integers, booleans, "
+                f"or allowlisted decision arrays: {key}"
+            )
+    encoded = canonical_json(out)
+    if len(encoded.encode("utf-8")) > 4_096:
+        raise ValidationError("metadata exceeds the 4096-byte limit")
+    return out
+
+
+def _identifier(name: str, value: Any) -> str:
+    text = _one_line(name, value, 200)
+    if not _IDENT_RE.fullmatch(text):
+        raise ValidationError(f"{name} contains unsupported characters")
+    return text
+
+
+def _optional_identifier(name: str, value: Any) -> str | None:
+    if value is None:
+        return None
+    return _identifier(name, value)
+
+
+def _required_string(name: str, value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValidationError(f"{name} must be a string")
+    return value
+
+
+def _one_line(name: str, value: Any, maximum: int) -> str:
+    if not isinstance(value, str):
+        raise ValidationError(f"{name} must be a string")
+    text = value.strip()
+    if not text:
+        raise ValidationError(f"{name} must not be empty")
+    if len(text) > maximum:
+        raise ValidationError(f"{name} exceeds {maximum} characters")
+    if any(ch in text for ch in ("\x00", "\r", "\n")):
+        raise ValidationError(f"{name} must be one line and contain no NUL")
+    if any(unicodedata.category(ch) in {"Cc", "Cf"} for ch in text):
+        raise ValidationError(f"{name} contains a control or direction-format character")
+    if any(pattern.search(text) for pattern in _SECRET_VALUE_RES):
+        raise ValidationError(f"{name} appears to contain a credential")
+    return text
+
+
+def _optional_line(name: str, value: Any, maximum: int) -> str | None:
+    if value is None:
+        return None
+    return _one_line(name, value, maximum)
+
+
+def _fingerprint(value: Any) -> str:
+    text = _one_line("fingerprint", value, 80)
+    if not _FINGERPRINT_RE.fullmatch(text):
+        raise ValidationError(
+            "fingerprint must be a stable lowercase slug (letters, numbers, dot, dash, underscore)"
+        )
+    return text
+
+
+def _optional_nonnegative_int(name: str, value: Any) -> int | None:
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValidationError(f"{name} must be a nonnegative integer")
+    return value

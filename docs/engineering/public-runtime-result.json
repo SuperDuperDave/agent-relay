@@ -1,0 +1,34 @@
+{
+  "base_commit": "4b9679cb9c90762efb4305442a907be513ceeeec",
+  "host_account_changed": false,
+  "release_id": "bc556f67d881fc15a72741b066972b8bb42c871bf2cd8a3eb19778097ca34d6c",
+  "runtime": {
+    "claim_conflict_refused": true,
+    "decision_response_and_ack": true,
+    "direct_sqlite_integrity": "ok",
+    "events": 7,
+    "exact_retries_idempotent": true,
+    "initialized": true,
+    "lifecycle_once": true,
+    "linked_worktree_shared": true,
+    "null_owner": 65534,
+    "provider_calls": 0,
+    "public_runtime": true,
+    "source_absent": true,
+    "wrong_holder_refused": true
+  },
+  "scope": "Actual public CLI in isolated OS account; no provider session",
+  "source_sha256": {
+    "src/relay.py": "61b9ab289f5139f62b6dcedbdcf09a21a579696fbc740317af78c1da7183beca",
+    "src/relay_bootstrap.py": "ee5531aa8e84d1c1c0cf8f40be35abd441334790552bdcf5a3b9da173b78df7b",
+    "src/relay_core/__init__.py": "c5968da516d737a2dbc149dfa81070dcb19a3f2e2efe89758267f2d1756d248b",
+    "src/relay_core/cli.py": "3d204765001951e5f7084ae2de6c472f19b5df58a00e937bb73b45bfa3b2e623",
+    "src/relay_core/protocol.py": "a0ea5168b30a665bea8e961b035e96dc4412380a76eb796b44f7b994889ba551",
+    "src/relay_core/store.py": "6f12dab2166a3385d5bd382d488edbfb627c41ece6dc551e9243d5287135e33f",
+    "src/relay_runtime/__init__.py": "85d1027069de2ce30efff4e096ac7c2801a5721c18e87cc720822e91dfca11eb",
+    "src/relay_runtime/admission.py": "69051e0d27af5f05726b7ca3c0c25b1df2857291fde1a8e6cb24d2e06c0acc9e",
+    "src/relay_runtime/cli.py": "242445e7c1867be1cd992a5047cd8812d9805bb8a759ca147cf620887fb91d0d",
+    "src/relay_runtime/confinement.py": "17a74dc694cfce30891b74a94cbc92d3cc51f17e9675f60c11859e7725fe8e2e",
+    "src/relay_runtime/enrollment.py": "ad0de1f8767d80af936bc1fb7c39b619e6cc8a74179ea2197ce32594aec9268e"
+  }
+}

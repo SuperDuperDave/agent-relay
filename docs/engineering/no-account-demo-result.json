@@ -1,0 +1,55 @@
+{
+  "checked_on": "2026-09-08",
+  "base_commit": "4b9679cb9c90762efb4305442a907be513ceeeec",
+  "command": "/usr/bin/python3 -I -S -B examples/no_account_demo.py --json",
+  "scope": "Real installed CLI with scripted actors in disposable rootless OS accounts; no provider session",
+  "result": {
+    "ack_events": 1,
+    "ack_link_verified_in_sqlite": true,
+    "actors": "scripted codex/claude labels",
+    "artifact": "d8c304e092db7313e142bb57d18f7152b847d748",
+    "artifact_file_sha256": "42ac5b6a38d5ce05637827e54feac1c3550483d773ba02b5de6a1842bfd182e7",
+    "baseline_tests": {
+      "failures": 2,
+      "run": 4
+    },
+    "competing_claim_refused": true,
+    "conflicting_handoff_retry_refused": true,
+    "events": 6,
+    "explicit_owner_release": true,
+    "fixture_hooks_preserved": true,
+    "fresh_process_recovery": true,
+    "handoff_events": 1,
+    "host_installation_used": false,
+    "linked_worktree_shared": true,
+    "network": "separate namespace; loopback only",
+    "pending_reads_appended_events": 0,
+    "producer_exit_before_notification": 75,
+    "provider_calls": 0,
+    "release_sha256": "0e024163ed851854721b03628837f159d1b70185d5b5302d581ea32bf0d317ad",
+    "result": "pass",
+    "review_tests": {
+      "failures": 0,
+      "run": 4
+    },
+    "scenario_sha256": "ec5641ab2cd000cc5bc896da4f2a0d3b3c6b1b6cf8911dc96f02247d75bcb1ba",
+    "schema": 1,
+    "simulated_duplicate_wakes": 2,
+    "source_absent_during_workflow": true,
+    "sqlite_integrity": "ok",
+    "wrong_session_release_refused": true
+  },
+  "source_sha256": {
+    "src/relay.py": "61b9ab289f5139f62b6dcedbdcf09a21a579696fbc740317af78c1da7183beca",
+    "src/relay_bootstrap.py": "ee5531aa8e84d1c1c0cf8f40be35abd441334790552bdcf5a3b9da173b78df7b",
+    "src/relay_core/__init__.py": "c5968da516d737a2dbc149dfa81070dcb19a3f2e2efe89758267f2d1756d248b",
+    "src/relay_core/cli.py": "3d204765001951e5f7084ae2de6c472f19b5df58a00e937bb73b45bfa3b2e623",
+    "src/relay_core/protocol.py": "a0ea5168b30a665bea8e961b035e96dc4412380a76eb796b44f7b994889ba551",
+    "src/relay_core/store.py": "6f12dab2166a3385d5bd382d488edbfb627c41ece6dc551e9243d5287135e33f",
+    "src/relay_runtime/__init__.py": "85d1027069de2ce30efff4e096ac7c2801a5721c18e87cc720822e91dfca11eb",
+    "src/relay_runtime/admission.py": "69051e0d27af5f05726b7ca3c0c25b1df2857291fde1a8e6cb24d2e06c0acc9e",
+    "src/relay_runtime/cli.py": "242445e7c1867be1cd992a5047cd8812d9805bb8a759ca147cf620887fb91d0d",
+    "src/relay_runtime/confinement.py": "17a74dc694cfce30891b74a94cbc92d3cc51f17e9675f60c11859e7725fe8e2e",
+    "src/relay_runtime/enrollment.py": "ad0de1f8767d80af936bc1fb7c39b619e6cc8a74179ea2197ce32594aec9268e"
+  }
+}

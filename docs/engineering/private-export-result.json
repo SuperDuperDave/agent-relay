@@ -1,0 +1,331 @@
+{
+  "checked_on": "2026-09-09",
+  "scope": "private history-free fixture; not release authorization",
+  "command": "Private local-only capture and isolation harnesses; exported commands: python3 -I -S -B tests/run_tests.py and python3 -I -S -B examples/no_account_demo.py --json",
+  "base_commit": "ee6c19663012e5587093e9fd29b43017c60325a5",
+  "manifest_sha256": "f40f4d24f4eb347adb4597adfbb4bb1817cdf93269f8d29e6cc7e25525a85f61",
+  "auditor_sha256": "0ef9cdc2956c5175a1fc6718c7a3a617b978648620548d66a8ede21dc1d08d11",
+  "export": {
+    "clean_checkout": true,
+    "commit": "ffb7c232ae22e206c7e0c5a7db56c58b5c3b614b",
+    "commits": 1,
+    "exact_inventory_bytes_modes": true,
+    "files": 56,
+    "full_object_storage_closure": true,
+    "git_objects": 69,
+    "remote": false,
+    "synthetic_metadata_only": true,
+    "tree": "af5639a62ccca8a51993e78f87feb090d201829b"
+  },
+  "selected_sha256": {
+    ".gitignore": "beabf8fbfa8d1bd05ad9f0c4dfdf7159e983a54c7ec1c1b167b43ab958ce0ec5",
+    "README.md": "e3641ffc9e57021576a131e462d29581f27b7ae4dae90c8e1e5a7ae7d5fd8f7a",
+    "docs/ARCHITECTURE.md": "4a17492425738d91030267c44d831594892579c39c7480b37402ba1da43af997",
+    "docs/DEMO.md": "8c78698a646ba9267bb26fd351852be9af7f2670df18162461b50938ad2d095c",
+    "docs/PROVIDERS.md": "99945247dd645e0bc62efdb244ac6ef0141719882d5e1496e8f706e779d512cf",
+    "docs/engineering/ENROLLMENT-DESIGN.md": "9f8938da88d89c100e05996e9408881cb40cad53525ab22a44cddcaa0499de4e",
+    "docs/engineering/INSTALLATION.md": "dad4e8ff88fb478e68c2846f1ad05a4a5157de79c838a3764ba53fe4afa313c2",
+    "docs/engineering/LEDGER-ADMISSION.md": "434b762ad3ca789a2e24f0d649a448cb51dad2b9522a8b18967446ccba29a9a9",
+    "docs/engineering/NULL-DEVICE-IDENTITY.md": "d67ef08981362a9c50cd8acefe3ae3f46995ef1b73e3b1e1ed09db838c6de05d",
+    "docs/engineering/PUBLICATION.md": "4d4d0c2a5eef6e68db8effaf2f1b23ca03553d6421f3cdbc7264e214373d9b22",
+    "docs/engineering/REQUIREMENTS.md": "6a58adc636062d9756835e04f4b7aa26dae150dd3ea5e74f8c12bb41eb9e20aa",
+    "docs/engineering/RUNTIME-GENERATIONS.md": "2a07d5f897902e976c7651ebed2bb63e7b74036deaca886e49830e2badbdb6d0",
+    "docs/engineering/UNINSTALL.md": "71bae4d0d83b50e133dc04f146dff89d322efbedb91102cec1457e9904bbd21b",
+    "docs/engineering/development-test-result.json": "6adb879f15d3cf41bcb54ba8d098516e4d1199d2bfeb28c04c392deceda12341",
+    "docs/engineering/native-claude-startup-result.json": "4e11ee9c0464bb623d65ce762f385c74975565ef2d69ed4d42684785daac58a6",
+    "docs/engineering/native-codex-discovery-result.json": "b7c5b77cd7f2527c449722a8e3d0dca056fe2c8562a55bc5706f62f176cc3d6b",
+    "docs/engineering/no-account-demo-result.json": "816a3e5519e1a8f5043007959eb2e57548610d0dc3231861511311c5fda4aad4",
+    "docs/engineering/public-provider-hook-result.json": "c03cf01da7fcabdc75d265b135233462bb404fe12bdf505fea6a517cdb301387",
+    "docs/engineering/public-runtime-result.json": "ac1efdd67055048e2f2a645758897b30a8ff34b19b811a2ec9d7cdf28aae4012",
+    "docs/engineering/public-uninstall-result.json": "e4e44bc0837e2882ef5f65420a5cc8705a1766023ce432b45149ec5f49d3e1fb",
+    "examples/demo_scenario.py": "ec5641ab2cd000cc5bc896da4f2a0d3b3c6b1b6cf8911dc96f02247d75bcb1ba",
+    "examples/no_account_demo.py": "992c9cd91508893fda4c7eec781a33d2b93db18eea71e33c2df841d62e389a35",
+    "src/relay.py": "61b9ab289f5139f62b6dcedbdcf09a21a579696fbc740317af78c1da7183beca",
+    "src/relay_bootstrap.py": "ee5531aa8e84d1c1c0cf8f40be35abd441334790552bdcf5a3b9da173b78df7b",
+    "src/relay_core/__init__.py": "c5968da516d737a2dbc149dfa81070dcb19a3f2e2efe89758267f2d1756d248b",
+    "src/relay_core/cli.py": "3d204765001951e5f7084ae2de6c472f19b5df58a00e937bb73b45bfa3b2e623",
+    "src/relay_core/protocol.py": "a0ea5168b30a665bea8e961b035e96dc4412380a76eb796b44f7b994889ba551",
+    "src/relay_core/store.py": "6f12dab2166a3385d5bd382d488edbfb627c41ece6dc551e9243d5287135e33f",
+    "src/relay_runtime/__init__.py": "85d1027069de2ce30efff4e096ac7c2801a5721c18e87cc720822e91dfca11eb",
+    "src/relay_runtime/admission.py": "69051e0d27af5f05726b7ca3c0c25b1df2857291fde1a8e6cb24d2e06c0acc9e",
+    "src/relay_runtime/cli.py": "242445e7c1867be1cd992a5047cd8812d9805bb8a759ca147cf620887fb91d0d",
+    "src/relay_runtime/confinement.py": "17a74dc694cfce30891b74a94cbc92d3cc51f17e9675f60c11859e7725fe8e2e",
+    "src/relay_runtime/enrollment.py": "ad0de1f8767d80af936bc1fb7c39b619e6cc8a74179ea2197ce32594aec9268e",
+    "tests/core/test_relay.py": "00c7a46ed6065a70fc2bf6b8a5ceab01b57190be3af1c7f409882c21ae0df63f",
+    "tests/core/test_relay_channel_pending.py": "7b5a34f71f88571f3cfe772b1d847865e4291dcba8240c0e23fd7f591dad6879",
+    "tests/core/test_relay_decisions.py": "aeea3c0fa404ee8332faf56233cee45c4c16f98d9c95a7283e582688f309c0c8",
+    "tests/providers/claude_startup_probe.py": "53615f368c5e818c33744b06469352302bf0fbcc82bce1309a5e194821b25777",
+    "tests/providers/codex_discovery_probe.py": "fc4b4bcab4cbcb0976a0db8dd3e8c76313dfd72f3eec29e46035e6caa0b1de95",
+    "tests/run_tests.py": "4dd4a7bcf14df0b6b97727ccda763450a2ca3324af2165024cbc6a5bf34322ee",
+    "tests/runtime/test_bootstrap.py": "c460c9b1882d020b7d7013742cab42919a3d79277de6102ee542714019aaf62a",
+    "tests/runtime/test_demo.py": "6099d41918919a466b78f92ad974474d612cf61a17776c760805cb03dbcedd75",
+    "tests/runtime/test_distribution.py": "41f260166531a153e00d601e9c1651c6727322f1ec225742cbe7bba002868bdf",
+    "tests/runtime/test_enrollment.py": "1cc1006c994e8116ed119ff3daa0126f03b0d086b3b82e1e80e2aa6b20fef9b8",
+    "tests/runtime/test_installed.py": "5edac898957f211430ec47ed15965b9f7906deeaad55bf31a0fd452435973e1b",
+    "tests/runtime/test_installed_adversarial.py": "84380c41cfc4ea940fe2769ec2dc4d0a07fd0017af25bf4669fa96b62e2184a4",
+    "tests/runtime/test_null_sink.py": "8f4d424253cbeaa4c5626436021c4736e165d743aa3d3c70e2f1a762e7d7cafb",
+    "tests/runtime/test_provider_config.py": "990315ef88ddc3a30cd3b98483563834402265d3b344d9c019f7497a290bf0b2",
+    "tests/runtime/test_provider_hook.py": "ecb263c1621741840e6066bfad177c03f7ff03d7a687b3aa1d80d97e374b31df",
+    "tests/runtime/test_public_profile.py": "724a5201369308eb8f3d8c250708a9590ee0681d0a91334c4ab211488e019c05",
+    "tests/runtime/test_public_provider.py": "67f378d4da29d7211c133fab6c87b9eb17b2051789ee0b99b60db77712ffcf29",
+    "tests/runtime/test_public_uninstall.py": "b51efb34c96641e678f90f4d150c3d9565492190bd2a9312ae468cb0b30584a9",
+    "tests/runtime/test_publication.py": "066af56f1d760b1ae276020017303d3e8f3ebe9c16e40ac06c177638437902c4",
+    "tests/runtime/test_recovery.py": "c82cea45da543647d354d5a77757fcef2fb0bfe062f89689c5350d118cbbcb6b",
+    "tests/runtime/test_uninstall.py": "4977be8a1c0a1cc148e0a39c24cd7ed0aafac1733177c02b2cc1fd0877fdadf0",
+    "tools/publication-manifest.json": "f40f4d24f4eb347adb4597adfbb4bb1817cdf93269f8d29e6cc7e25525a85f61",
+    "tools/publication_audit.py": "0ef9cdc2956c5175a1fc6718c7a3a617b978648620548d66a8ede21dc1d08d11"
+  },
+  "snapshot_findings": [],
+  "synthetic_metadata_findings": 2,
+  "runtime": {
+    "demo": {
+      "duration_seconds": 5.426,
+      "exit_code": 0,
+      "isolation": {
+        "export_readonly": true,
+        "fresh_pid_network_user_namespaces": true,
+        "network_interfaces": [
+          "lo"
+        ],
+        "null_owner": 65534,
+        "original_account_and_checkout_not_mounted": true,
+        "proc_writable_for_nested_namespaces": true,
+        "system_readonly": true,
+        "uid_gid": 1000
+      },
+      "result": {
+        "ack_events": 1,
+        "ack_link_verified_in_sqlite": true,
+        "actors": "scripted codex/claude labels",
+        "artifact": "d8c304e092db7313e142bb57d18f7152b847d748",
+        "artifact_file_sha256": "42ac5b6a38d5ce05637827e54feac1c3550483d773ba02b5de6a1842bfd182e7",
+        "baseline_tests": {
+          "failures": 2,
+          "run": 4
+        },
+        "competing_claim_refused": true,
+        "conflicting_handoff_retry_refused": true,
+        "events": 6,
+        "explicit_owner_release": true,
+        "fixture_hooks_preserved": true,
+        "fresh_process_recovery": true,
+        "handoff_events": 1,
+        "host_installation_used": false,
+        "linked_worktree_shared": true,
+        "network": "separate namespace; loopback only",
+        "pending_reads_appended_events": 0,
+        "producer_exit_before_notification": 75,
+        "provider_calls": 0,
+        "release_sha256": "0e024163ed851854721b03628837f159d1b70185d5b5302d581ea32bf0d317ad",
+        "result": "pass",
+        "review_tests": {
+          "failures": 0,
+          "run": 4
+        },
+        "scenario_sha256": "ec5641ab2cd000cc5bc896da4f2a0d3b3c6b1b6cf8911dc96f02247d75bcb1ba",
+        "schema": 1,
+        "simulated_duplicate_wakes": 2,
+        "source_absent_during_workflow": true,
+        "sqlite_integrity": "ok",
+        "wrong_session_release_refused": true
+      },
+      "stderr_bytes": 0,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 1452,
+      "stdout_sha256": "14fdbec0e50308ddd38741133f4cf8c91325af58f2556a06e419595c60a6cec8"
+    },
+    "expected_tests": 286,
+    "export_unchanged": true,
+    "fresh_profile_per_phase": true,
+    "limits": [
+      "Trusted exported code and host system dependencies, not a hostile-code sandbox",
+      "Fresh outer proc is writable to support nested rootless namespaces",
+      "Caller separately establishes immutable blob selection and fresh Git-history provenance"
+    ],
+    "package": {
+      "duration_seconds": 0.236,
+      "exit_code": 0,
+      "isolation": {
+        "export_readonly": true,
+        "fresh_pid_network_user_namespaces": true,
+        "network_interfaces": [
+          "lo"
+        ],
+        "null_owner": 65534,
+        "original_account_and_checkout_not_mounted": true,
+        "proc_writable_for_nested_namespaces": true,
+        "system_readonly": true,
+        "uid_gid": 1000
+      },
+      "result": {
+        "build_approved": false,
+        "directories": [
+          "payload",
+          "payload/relay_core",
+          "payload/relay_runtime"
+        ],
+        "exact_literal_closure": true,
+        "file_count": 11,
+        "members": {
+          "bootstrap.py": {
+            "mode": 384,
+            "sha256": "ee5531aa8e84d1c1c0cf8f40be35abd441334790552bdcf5a3b9da173b78df7b",
+            "size": 81588
+          },
+          "payload/relay_core/__init__.py": {
+            "mode": 384,
+            "sha256": "c5968da516d737a2dbc149dfa81070dcb19a3f2e2efe89758267f2d1756d248b",
+            "size": 33
+          },
+          "payload/relay_core/cli.py": {
+            "mode": 384,
+            "sha256": "3d204765001951e5f7084ae2de6c472f19b5df58a00e937bb73b45bfa3b2e623",
+            "size": 34176
+          },
+          "payload/relay_core/protocol.py": {
+            "mode": 384,
+            "sha256": "a0ea5168b30a665bea8e961b035e96dc4412380a76eb796b44f7b994889ba551",
+            "size": 24120
+          },
+          "payload/relay_core/store.py": {
+            "mode": 384,
+            "sha256": "6f12dab2166a3385d5bd382d488edbfb627c41ece6dc551e9243d5287135e33f",
+            "size": 91993
+          },
+          "payload/relay_runtime/__init__.py": {
+            "mode": 384,
+            "sha256": "85d1027069de2ce30efff4e096ac7c2801a5721c18e87cc720822e91dfca11eb",
+            "size": 75
+          },
+          "payload/relay_runtime/admission.py": {
+            "mode": 384,
+            "sha256": "69051e0d27af5f05726b7ca3c0c25b1df2857291fde1a8e6cb24d2e06c0acc9e",
+            "size": 10912
+          },
+          "payload/relay_runtime/cli.py": {
+            "mode": 384,
+            "sha256": "242445e7c1867be1cd992a5047cd8812d9805bb8a759ca147cf620887fb91d0d",
+            "size": 15941
+          },
+          "payload/relay_runtime/confinement.py": {
+            "mode": 384,
+            "sha256": "17a74dc694cfce30891b74a94cbc92d3cc51f17e9675f60c11859e7725fe8e2e",
+            "size": 5278
+          },
+          "payload/relay_runtime/enrollment.py": {
+            "mode": 384,
+            "sha256": "ad0de1f8767d80af936bc1fb7c39b619e6cc8a74179ea2197ce32594aec9268e",
+            "size": 20620
+          },
+          "release.json": {
+            "mode": 384,
+            "sha256": "8020a1e548de50923362f05570f947f9c212c16cb3dc046e6193e26c016ee8fe",
+            "size": 1253
+          }
+        },
+        "release_sha256": "8020a1e548de50923362f05570f947f9c212c16cb3dc046e6193e26c016ee8fe",
+        "runtime_members": 9,
+        "source_bytes_match": true,
+        "version": "0.0.0-export-validation"
+      },
+      "stderr_bytes": 0,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 2142,
+      "stdout_sha256": "8e392762cb6933e3c14307396061f192a53ecff373339a35c87ba612295619fe"
+    },
+    "preflight": {
+      "duration_seconds": 4.568,
+      "errors": 0,
+      "exit_code": 0,
+      "failures": 0,
+      "isolation": {
+        "export_readonly": true,
+        "fresh_pid_network_user_namespaces": true,
+        "network_interfaces": [
+          "lo"
+        ],
+        "null_owner": 65534,
+        "original_account_and_checkout_not_mounted": true,
+        "proc_writable_for_nested_namespaces": true,
+        "system_readonly": true,
+        "uid_gid": 1000
+      },
+      "skipped": 0,
+      "stderr_bytes": 98,
+      "stderr_sha256": "155770537d6c43df3ad8809254835619eef4fca3e06b2bbeb3bf35a41387d234",
+      "stdout_bytes": 279,
+      "stdout_sha256": "15eb07c79ab872119275e1c0e6fc1ab0a2092609fc700bf244481daae16f8f92",
+      "tests": 1
+    },
+    "provider_calls": 0,
+    "publication_authorized": false,
+    "schema": 1,
+    "scope": "private history-free export runtime validation; no provider execution or publication",
+    "suite": {
+      "duration_seconds": 110.821,
+      "exit_code": 0,
+      "isolation": {
+        "export_readonly": true,
+        "fresh_pid_network_user_namespaces": true,
+        "network_interfaces": [
+          "lo"
+        ],
+        "null_owner": 65534,
+        "original_account_and_checkout_not_mounted": true,
+        "proc_writable_for_nested_namespaces": true,
+        "system_readonly": true,
+        "uid_gid": 1000
+      },
+      "result": {
+        "duration_seconds": 110.44,
+        "errors": 0,
+        "failures": 0,
+        "isolated_profile": true,
+        "platform": "linux",
+        "python": "3.12.3",
+        "scope": "development core, installed runtime/recovery/uninstall and no-account workflow; no real-provider proof",
+        "skipped": 0,
+        "sqlite": "3.45.1",
+        "suite": "all",
+        "tests": 286
+      },
+      "stderr_bytes": 388,
+      "stderr_sha256": "07c3ead26ea29c249452f5a49b1e9b503e012f49a131f9641ae2b243b9b2540e",
+      "stdout_bytes": 582,
+      "stdout_sha256": "375a6af0ffc58be22602bd731b829ccff2714b9072ffffba8d9813b5dc265a95"
+    }
+  },
+  "independent_private_controls": {
+    "tests": 8,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "duration_seconds": 2.201,
+    "independently_authored": true,
+    "control_sha256": "76c07f470b99ff8a65dea30e0843233abd03979f66a8a81d8120a35bd27c43bd",
+    "tested_fixture_probe_sha256": "c516899ffc57e96e82c1d7594938c9b5af30a96ba69aec877e5ade4f70a75f1a"
+  },
+  "harness_sha256": {
+    "export_runtime_probe.py": "5a7e557343e7d0396bbbdf1b43ca71042761f1e434d120909660cc29f03615d1",
+    "private_export_probe.py": "c516899ffc57e96e82c1d7594938c9b5af30a96ba69aec877e5ade4f70a75f1a"
+  },
+  "harness_loaded_bytes_verified": false,
+  "fixture_preserved": false,
+  "publication_authorized": false,
+  "existing_history_export_allowed": false,
+  "provider_calls": 0,
+  "limitations": [
+    "This exact 56-file private fixture was executed; later documentation, manifest or evidence additions are not implicitly part of that run.",
+    "The single synthetic author/committer identity was reviewed only for this disposable fixture, not approved as public attribution.",
+    "Two email-category findings refer only to the exact synthetic fixture identity; they are not unreviewed source metadata.",
+    "Harnesses remain private local-only audit evidence, not a shipped export utility. File hashes observed unchanged do not authenticate loaded code.",
+    "Trusted source Git configuration and same-account filesystem are assumed; hostile concurrent namespace substitution and physical power loss are not proven.",
+    "No source history, omitted files, original account, live ledger, credentials or provider process was copied or mounted into executing validation phases.",
+    "The outer namespace uses fresh writable proc for nested rootless namespaces, with readonly system and export mounts. Only this Linux/WSL UID1000 profile was exercised.",
+    "The demo uses scripted actors and real Git/tests/SQLite; real model context, trust, coding/review and wake behavior remain unverified.",
+    "The runtime bundle contains the reviewed bootstrap, nine runtime members and canonical release record; its digest is integrity evidence, not release approval or publisher authentication.",
+    "Temporary export, account, bundle and demo state were removed before the successful receipt. No public repository, remote, license or upload exists.",
+    "Rights/private-semantic review, approved public identity/license/metadata, actual public artifact, CI and anonymous-clone onboarding remain open."
+  ]
+}
+

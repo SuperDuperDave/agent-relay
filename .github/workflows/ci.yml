@@ -1,0 +1,43 @@
+name: No-account checks
+
+"on":
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the event commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install the namespace test dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes bubblewrap
+          /usr/bin/python3 --version
+          /usr/bin/git --version
+          /usr/bin/bwrap --version
+
+      - name: Require the complete no-account suite
+        run: /usr/bin/python3 -I -S -B tests/run_tests.py --suite all --strict
+
+      - name: Run the installed scripted workflow
+        run: /usr/bin/python3 -I -S -B examples/no_account_demo.py --json
+
+      - name: Inspect the immutable publication selection
+        run: |
+          /usr/bin/python3 -I -S -B tools/publication_audit.py \
+            --repo "$GITHUB_WORKSPACE" --revision "$GITHUB_SHA"

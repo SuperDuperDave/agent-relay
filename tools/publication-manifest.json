@@ -1,0 +1,224 @@
+{
+  "schema": 1,
+  "files": [
+    ".github/workflows/ci.yml",
+    ".gitignore",
+    "LICENSE",
+    "README.md",
+    "docs/ARCHITECTURE.md",
+    "docs/CI.md",
+    "docs/DEMO.md",
+    "docs/PROVIDERS.md",
+    "docs/SUPPORT.md",
+    "docs/engineering/ENROLLMENT-DESIGN.md",
+    "docs/engineering/INSTALLATION.md",
+    "docs/engineering/LEDGER-ADMISSION.md",
+    "docs/engineering/NULL-DEVICE-IDENTITY.md",
+    "docs/engineering/PUBLICATION.md",
+    "docs/engineering/REBIND.md",
+    "docs/engineering/REQUIREMENTS.md",
+    "docs/engineering/RUNTIME-GENERATIONS.md",
+    "docs/engineering/UNINSTALL.md",
+    "docs/engineering/development-test-result.json",
+    "docs/engineering/native-claude-startup-result.json",
+    "docs/engineering/native-codex-discovery-result.json",
+    "docs/engineering/no-account-demo-result.json",
+    "docs/engineering/private-export-result.json",
+    "docs/engineering/public-provider-hook-result.json",
+    "docs/engineering/public-runtime-result.json",
+    "docs/engineering/public-uninstall-result.json",
+    "examples/demo_scenario.py",
+    "examples/no_account_demo.py",
+    "src/relay.py",
+    "src/relay_bootstrap.py",
+    "src/relay_core/__init__.py",
+    "src/relay_core/cli.py",
+    "src/relay_core/protocol.py",
+    "src/relay_core/store.py",
+    "src/relay_runtime/__init__.py",
+    "src/relay_runtime/admission.py",
+    "src/relay_runtime/cli.py",
+    "src/relay_runtime/confinement.py",
+    "src/relay_runtime/enrollment.py",
+    "tests/core/test_relay.py",
+    "tests/core/test_relay_channel_pending.py",
+    "tests/core/test_relay_decisions.py",
+    "tests/providers/claude_startup_probe.py",
+    "tests/providers/codex_discovery_probe.py",
+    "tests/run_tests.py",
+    "tests/runtime/test_bootstrap.py",
+    "tests/runtime/test_demo.py",
+    "tests/runtime/test_distribution.py",
+    "tests/runtime/test_enrollment.py",
+    "tests/runtime/test_external_recovery.py",
+    "tests/runtime/test_installed.py",
+    "tests/runtime/test_installed_adversarial.py",
+    "tests/runtime/test_null_sink.py",
+    "tests/runtime/test_provider_config.py",
+    "tests/runtime/test_provider_hook.py",
+    "tests/runtime/test_public_external_recovery.py",
+    "tests/runtime/test_public_profile.py",
+    "tests/runtime/test_public_provider.py",
+    "tests/runtime/test_public_rebind.py",
+    "tests/runtime/test_public_uninstall.py",
+    "tests/runtime/test_publication.py",
+    "tests/runtime/test_rebind.py",
+    "tests/runtime/test_recovery.py",
+    "tests/runtime/test_suite_runner.py",
+    "tests/runtime/test_uninstall.py",
+    "tools/publication-manifest.json",
+    "tools/publication_audit.py"
+  ],
+  "exceptions": [
+    {
+      "path": "tests/runtime/test_public_rebind.py",
+      "rule": "email-address",
+      "line_sha256": "5f2dacbb7f784f0cb2a5cc51aae1e6fbbc97e5be7f49cb36ccaac41011a08bf0",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "docs/PROVIDERS.md",
+      "rule": "personal-home-path",
+      "line_sha256": "adb662904cd06a5330e9b08f3c82f44bc88036a418abc9b71d5e5fb92c864109",
+      "reason": "public-example"
+    },
+    {
+      "path": "docs/PROVIDERS.md",
+      "rule": "personal-home-path",
+      "line_sha256": "1fc40797f20e913e18cef695368d56612aa26fe84d434adcb018a04b5d991419",
+      "reason": "public-example"
+    },
+    {
+      "path": "examples/demo_scenario.py",
+      "rule": "email-address",
+      "line_sha256": "f15e2e5822da5fb32f6edf40046c1d33c07bcf6e69b62aaceba7cddcdec92d13",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "examples/no_account_demo.py",
+      "rule": "personal-home-path",
+      "line_sha256": "ba9a6463ff20973cd868831f7d95fdc3d8d2014f9b583cb00778e00de1f9661a",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/core/test_relay.py",
+      "rule": "email-address",
+      "line_sha256": "06c033532987521b546c25616e90b3b68b27c6b07f20c0f76324ef12be4009af",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/core/test_relay.py",
+      "rule": "bearer-token",
+      "line_sha256": "468dd20f099f6f0c299a47506d364d102eb527ebe144c943683834e756e109e1",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/core/test_relay.py",
+      "rule": "email-address",
+      "line_sha256": "b5ab15a0d74204f50431e806a7f9f2a2aab3b0b8f3620a23632078c2e3970caa",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/core/test_relay_channel_pending.py",
+      "rule": "email-address",
+      "line_sha256": "13961c717e36a6b39676ccfa244ae072fb2b7ca49a583153b146f30283f6a7cc",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/core/test_relay_decisions.py",
+      "rule": "email-address",
+      "line_sha256": "13961c717e36a6b39676ccfa244ae072fb2b7ca49a583153b146f30283f6a7cc",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/core/test_relay_decisions.py",
+      "rule": "bearer-token",
+      "line_sha256": "97a09da205293b6cb586793f84450c5c19268d811e9bac4aa23b5352584b404d",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/providers/claude_startup_probe.py",
+      "rule": "email-address",
+      "line_sha256": "46bf445b6c81563b847804a6964b367c7a3eb02a5d096a4817f031dc13d2518e",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/providers/codex_discovery_probe.py",
+      "rule": "personal-home-path",
+      "line_sha256": "a761f9b0b27000902b9c42b595be76c12d468cdc19c1767b495d224f697ed7bf",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/providers/codex_discovery_probe.py",
+      "rule": "personal-home-path",
+      "line_sha256": "8703ae02fe92c21007d6a86a3970c8a56721be244ef0de27a2a6ee80accbdcdb",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/providers/codex_discovery_probe.py",
+      "rule": "personal-home-path",
+      "line_sha256": "fa8aa539b3f1980855909e4e16dcb707210c54a29613c146b60ce415a98f13db",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/runtime/test_enrollment.py",
+      "rule": "email-address",
+      "line_sha256": "ebca3eb644b1ddbae2b422ccfb7341778716d8074342d8eab00fbdb1ed290223",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/runtime/test_enrollment.py",
+      "rule": "email-address",
+      "line_sha256": "10f9ad5876f603ff485fbc0a457b9bd46590861ff59a91a5081f0b78dafc9251",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/runtime/test_installed.py",
+      "rule": "email-address",
+      "line_sha256": "a6db2994ad3d61d53ec2327e6f80df65469ebc1587a5b205e60a277543282795",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/runtime/test_provider_hook.py",
+      "rule": "email-address",
+      "line_sha256": "93da33eda93e9c71a8daa283f78349f015bf44a0fad4fe3fc52bf9d51966f9cd",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/runtime/test_public_profile.py",
+      "rule": "email-address",
+      "line_sha256": "5f2dacbb7f784f0cb2a5cc51aae1e6fbbc97e5be7f49cb36ccaac41011a08bf0",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/runtime/test_public_profile.py",
+      "rule": "personal-home-path",
+      "line_sha256": "bc102e0dfbd5941d53e13f74a8bae168a54088ab29b55e79a9a422bc2b801e75",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/runtime/test_public_provider.py",
+      "rule": "email-address",
+      "line_sha256": "5f2dacbb7f784f0cb2a5cc51aae1e6fbbc97e5be7f49cb36ccaac41011a08bf0",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/runtime/test_publication.py",
+      "rule": "email-address",
+      "line_sha256": "5f6ecaa579582ae144cd4d8a624543ea16244dd4d46c23fe40808ba30ce2e7d9",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/runtime/test_publication.py",
+      "rule": "email-address",
+      "line_sha256": "6450396084970a00d1e67786e43afef206e995373f70ce59fc02c6e68d5a7ceb",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tools/publication_audit.py",
+      "rule": "personal-home-path",
+      "line_sha256": "37b8abf4fdd0aaa78fee5bc1a00aa499624e0e1af81922ff49963bccf0bbe388",
+      "reason": "sanitizer-pattern"
+    }
+  ]
+}
