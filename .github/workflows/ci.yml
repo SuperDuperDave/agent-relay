@@ -41,3 +41,25 @@ jobs:
         run: |
           /usr/bin/python3 -I -S -B tools/publication_audit.py \
             --repo "$GITHUB_WORKSPACE" --revision "$GITHUB_SHA"
+
+      - name: Classify namespace denials after a failed check
+        if: failure()
+        run: |
+          /usr/bin/python3 -I -S -B - <<'PY'
+          import re, subprocess
+          def classify(data):
+              fields = [re.findall(rb'(?<!\S)(apparmor|operation|profile|comm|capname)="([^"\\\r\n]*)"(?=\s|$)', line) for line in data.splitlines()]
+              records = [dict(pairs) for pairs in fields if len(dict(pairs)) == len(pairs)]
+              denied = [r for r in records if all(r.get(k) == v for k, v in {b'apparmor': b'DENIED', b'operation': b'capable', b'comm': b'bwrap', b'capname': b'net_admin'}.items())]
+              if any(r.get(b'profile') == b'unpriv_bwrap' for r in denied):
+                  return 'known_bwrap_profile_net_admin_denial'
+              return 'apparmor_capability_denial' if denied else 'unknown'
+          result = 'unknown'
+          try:
+              observed = subprocess.run(['sudo', '-n', 'journalctl', '-k', '--no-pager', '-n', '400', '--output=cat'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10, check=False)
+              if observed.returncode == 0 and len(observed.stdout) <= 262144:
+                  result = classify(observed.stdout)
+          except (OSError, subprocess.SubprocessError):
+              pass
+          print('namespace_network_policy=' + result)
+          PY
