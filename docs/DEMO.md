@@ -90,8 +90,10 @@ The public-profile and crash suites cover additional cases separately.
 
 The [bounded native workflow](PROVIDERS.md#bounded-native-workflow) separately
 exercises actual Codex and Claude sessions. This demo remains a scripted,
-no-account tour. Hosted CI, final public artifacts and anonymous onboarding
-remain release checks; see the [acceptance matrix](engineering/REQUIREMENTS.md).
+no-account tour. See [hosted checks](CI.md#hosted-result) for the public-source
+run and [v0.1.0](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.1.0) for package and
+anonymous-onboarding results. The [acceptance matrix](engineering/REQUIREMENTS.md)
+keeps these scopes separate.
 
 Implementation: [harness](../examples/no_account_demo.py) and
 [scripted scenario](../examples/demo_scenario.py). Do not run the internal

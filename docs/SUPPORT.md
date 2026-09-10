@@ -2,8 +2,9 @@
 
 Relay 0.1.0 is an [MIT-licensed](../LICENSE) preview exercised on the Linux/WSL2
 profile below. Installation, scripted demonstration and bounded native provider
-work have separate evidence; hosted CI and final public release validation
-remain pending.
+work have separate evidence. [Hosted checks](CI.md#hosted-result) record the
+public commit and runner; consult [v0.1.0](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.1.0)
+for package and onboarding results.
 
 ## Exercised profile
 
@@ -21,13 +22,22 @@ the bwrap executable is installed.
 
 For one concrete policy mechanism, see Ubuntu's
 [AppArmor namespace restrictions](https://documentation.ubuntu.com/security/security-features/privilege-restriction/apparmor/).
-The appropriate policy depends on the environment; this preview does not alter it.
+The appropriate policy depends on the environment. Relay's installer and demo
+leave developer-machine policy unchanged; the hosted job uses the explicit
+CI profile described below.
 
 Fixture namespaces map their ordinary account to UID/GID1000. This is not an
 instruction to renumber the host user. Other host profiles need their own
-execution evidence. Native Windows, macOS, ARM Linux, network filesystems,
-containers and GitHub-hosted runners are not verified merely by being listed as
-possible environments. The hosted workflow remains unexecuted until publication.
+execution evidence. The [recorded hosted run](CI.md#hosted-result) additionally
+exercises its Ubuntu runner with a temporary, explicitly entered `relay-ci`
+AppArmor compatibility profile. That enforced profile grants broad operations
+for the CI process tree; it is not a tight AppArmor sandbox. The system launcher
+drops host privileges before repository code runs, and a preflight checks two
+nested namespace levels under the same profile. See the
+[exact CI setup](CI.md#hosted-workflow), which keeps AppArmor enabled globally
+and leaves developer machines unchanged. Other Ubuntu/AppArmor configurations need
+their own checks. Native Windows, macOS, ARM Linux, network filesystems and
+other container/runner profiles remain outside these witnesses.
 
 No provider account is needed for the complete default suite or scripted demo.
 The [native walkthrough and evidence](PROVIDERS.md#bounded-native-workflow) cover
@@ -72,9 +82,10 @@ A success toast or green transport connection is not a durable-write witness.
 
 Do not post auth files, environment dumps, raw provider transcripts, live SQLite
 databases, private receiver URLs, personal Git metadata or unreviewed full logs.
-Use a minimal disposable reproduction with artificial identifiers. Public issue
-and private security-reporting channels must be established with the approved
-repository; no contact endpoint or response-time promise exists yet.
+Use a minimal disposable reproduction with artificial identifiers.
+Report ordinary bugs through [GitHub Issues](https://github.com/SuperDuperDave/agent-relay/issues).
+Report vulnerabilities through [private vulnerability reporting](https://github.com/SuperDuperDave/agent-relay/security/advisories/new),
+not a public issue. No response-time commitment is made.
 
 ## Trust limits
 

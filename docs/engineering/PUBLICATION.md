@@ -1,11 +1,14 @@
 # Publication boundary
 
-The 0.1.0 preview uses an explicit publication selection. Final fresh-history
-and distribution checks remain pending. No directory glob, ignored working-tree
-file or development history becomes an implicit publication input.
+The [public source](https://github.com/SuperDuperDave/agent-relay) began as a fresh parentless snapshot
+of 67 explicitly selected files with 25 exact reviewed exceptions. The export
+passed all 327 strict tests plus isolated installation, package inspection and
+the no-account demo before upload. No development history, ignored files or
+unselected content was imported. Consult [v0.1.0](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.1.0)
+for final release-archive and onboarding results.
 
 The project is [MIT licensed](../../LICENSE), copyright (c) 2026 David Jones,
-and code publication is approved subject to the remaining artifact checks.
+and its selected source was reviewed for publication.
 That approval does not release videos, casts, transcripts or other recording
 artifacts; those require separate review before public distribution.
 
@@ -103,10 +106,11 @@ private fresh-history check, all 327 strict tests and the scripted demo.
 
 Adding LICENSE brings the current selection to 67 files with the same 25 exact
 exceptions. Both the 56-file and 66-file export results retain their historical
-scope: they do not cover subsequent license or documentation edits. The final
-selected bytes, fresh Git history and packaged distributions still require
-their own exact validation. Historical native probes likewise retain the
-source and executable hashes recorded in their individual receipts.
+scope: they do not cover subsequent license or documentation edits. The later
+67-file public-source export was validated separately as described above; each
+subsequent source commit and packaged distribution needs its own exact checks.
+Historical native probes retain the source and executable hashes recorded in
+their individual receipts.
 
 The 56-file fixture copied only hash-verified selected blobs, never the working tree,
 source Git directory or old object cache. Fresh raw Git objects and a synthetic
@@ -142,14 +146,18 @@ silently normalized. The private harness is not a shipped general-purpose
 exporter and assumes trusted source metadata and a cooperating same account.
 Temporary fixture cleanup completed before success was emitted.
 
-## Remaining release gates
+## Public source and release evidence
 
-MIT licensing, David Jones attribution and code publication are approved.
-Final repository identity, rights/private-semantic review, approved public
-metadata, exact artifact validation, hosted CI and anonymous-clone onboarding
-remain distinct required gates. The completed [bounded native workflow](../PROVIDERS.md#bounded-native-workflow)
-does not validate a later public snapshot or distribution.
-The private fixtures provide evidence for their exact candidates; they do not
-approve exporting development history. This tooling creates no GitHub
-repository, remote or upload. Recording artifacts remain outside the positive
-selection pending their separate review.
+[Hosted CI](../CI.md#hosted-result) records its exact public commit and run.
+[Support](../SUPPORT.md#useful-safe-support-information) links the public issue
+tracker and private vulnerability-reporting channel. The
+[v0.1.0 release](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.1.0) is the reference for the tagged
+source, archive checksums, package verification and anonymous clone/download
+results. Only recorded results for that source and archive establish those checks.
+The [bounded native workflow](../PROVIDERS.md#bounded-native-workflow) does not
+validate a later public snapshot or distribution.
+
+Historical private fixtures cover only their exact candidates. The auditor
+creates no repository, remote or upload and never approves exporting development
+history. Recording artifacts remain outside the positive selection pending
+their separate review.

@@ -12,12 +12,26 @@ Relay gives Codex and Claude a durable local coordination ledger for that work.
 **0.1.0 preview.** The installed runtime, scripted demo and a bounded native
 Codex/Claude review workflow are exercised on the documented Linux/WSL2 profile.
 See the [provider walkthrough and scope](docs/PROVIDERS.md#bounded-native-workflow).
-Hosted CI and final public release validation remain pending.
+The public source is [SuperDuperDave/agent-relay](https://github.com/SuperDuperDave/agent-relay).
+See [hosted checks](docs/CI.md#hosted-result) for the tested commit and
+[v0.1.0](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.1.0) for package and onboarding results.
 [MIT licensed](LICENSE), copyright (c) 2026 David Jones.
+
+Created by David Jones with AI assistance. Codex contributed implementation,
+testing and release work; Claude performed the bounded native review described
+in the provider walkthrough.
 
 ## Try the no-account demo
 
-From a reviewed checkout, run:
+First check the [platform prerequisites](docs/SUPPORT.md#exercised-profile),
+then get the source:
+
+```sh
+git clone https://github.com/SuperDuperDave/agent-relay.git
+cd agent-relay
+```
+
+Review the checkout before running its code. From the repository root, run:
 
 ```sh
 /usr/bin/python3 -I -S -B examples/no_account_demo.py
@@ -37,9 +51,10 @@ output; [support](docs/SUPPORT.md) covers platform prerequisites and diagnosis.
 
 ## Build and install the preview
 
-Review the source and [installation guide](docs/engineering/INSTALLATION.md)
-before running the bootstrap. From that checkout, build an offline bundle into
-a new directory:
+The [installation guide](docs/engineering/INSTALLATION.md#install-from-the-release-archive)
+explains the release archive and checksum route. To build from source instead,
+review the checkout before running its bootstrap, then create an offline bundle
+in a new directory:
 
 ```sh
 /usr/bin/python3 -I -S -B src/relay_bootstrap.py build-release \

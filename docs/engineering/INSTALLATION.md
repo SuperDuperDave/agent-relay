@@ -1,9 +1,11 @@
 # Offline installation — 0.1.0 preview
 
-Relay 0.1.0 is [MIT licensed](../../LICENSE). Use the reviewed source-build
-route below while downloadable release assets are being finalized. Installed
-ledger commands and the [bounded native workflow](../PROVIDERS.md#bounded-native-workflow)
-have local evidence; hosted CI and final public release validation remain pending.
+Relay 0.1.0 is [MIT licensed](../../LICENSE). The public source is
+[SuperDuperDave/agent-relay](https://github.com/SuperDuperDave/agent-relay). Choose the release-archive
+or source-build route below. [Hosted checks](../CI.md#hosted-result) and the
+[bounded native workflow](../PROVIDERS.md#bounded-native-workflow) have separate
+scope. Consult [v0.1.0](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.1.0) for final package
+and anonymous-onboarding results.
 
 Use an ordinary x86-64 Linux/WSL account with Python 3.12 and Git. The installed
 worker also requires Landlock ABI3+, procfs and supported filesystem birth times.
@@ -17,12 +19,63 @@ bootstrap and the entire closed runtime together. Its SHA256 detects changed
 bytes and identifies the approved selection; it is not a publisher signature
 or independent proof that unknown code is safe.
 
-For development, review the selected source commit and tests before executing
-its bootstrap. A future published release needs its provenance and verification
-instructions. Do not fetch arbitrary code and let that same code approve itself.
+Review the selected source commit and tests before executing its bootstrap.
+For an archive, inspect the release's source binding and verification results.
+Do not fetch arbitrary code and let that same code approve itself.
 
 The installer is offline and stdlib-only. It never signs in, downloads code,
 edits PATH/shell configuration, enrolls a repository or enables provider hooks.
+
+## Install from the release archive
+
+Use this route when the [v0.1.0 release](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.1.0) lists both
+`relay-0.1.0-linux-x86_64.tar.gz` and its `.sha256` file under Assets.
+Source publication and green CI alone do not establish a downloaded-package
+check; read the release's package and onboarding results first.
+
+Download both files into a new empty directory. For example, with curl installed:
+
+```sh
+mkdir relay-download
+cd relay-download
+curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.1.0/relay-0.1.0-linux-x86_64.tar.gz
+curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.1.0/relay-0.1.0-linux-x86_64.tar.gz.sha256
+sha256sum --check relay-0.1.0-linux-x86_64.tar.gz.sha256
+tar -tvzf relay-0.1.0-linux-x86_64.tar.gz
+```
+
+Review the listed files under the single `relay-0.1.0/` root, then extract and
+check the individual file hashes:
+
+```sh
+tar -xzf relay-0.1.0-linux-x86_64.tar.gz
+cd relay-0.1.0
+sha256sum --check SHA256SUMS
+```
+
+The installer is `runtime/bootstrap.py` and the bundle is `runtime/`.
+Read the extracted README's source binding and runtime release identifier;
+`RELEASE_SHA256` below means that reviewed full 64-character identifier, not
+the archive checksum. After reviewing the source and bundle, inspect the plan:
+
+```sh
+/usr/bin/python3 -I -S -B runtime/bootstrap.py plan \
+  --release runtime --approve-sha256 RELEASE_SHA256
+```
+
+Only for a first installation whose plan reports `expected_activation: null`:
+
+```sh
+/usr/bin/python3 -I -S -B runtime/bootstrap.py install \
+  --release runtime --approve-sha256 RELEASE_SHA256 \
+  --expected-activation none
+```
+
+For an upgrade, use the exact activation from a fresh plan instead of `none`.
+Continue with [installed status](#inspect-the-actual-installed-command) and
+[explicit repository initialization](#choose-and-initialize-a-repository).
+The archive checksum and `SHA256SUMS` detect changed bytes; neither is a publisher
+signature or independent approval of the code.
 
 ## Build a local preview bundle
 
