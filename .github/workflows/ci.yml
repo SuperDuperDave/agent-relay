@@ -65,6 +65,27 @@ jobs:
 
           PROFILE = b'relay-ci (enforce)'
           NAMESPACES = ('user', 'mnt', 'pid', 'net')
+          # Literal diagnostic prefixes from bubblewrap v0.9.0; values never print.
+          BWRAP_FAILURES = {
+              'loopback': (b'loopback: Failed ',),
+              'mount_proc': (b"Can't mount proc on ", b"Can't mount tmpfs on ",
+                             b"Can't mount devpts on ", b"Can't bind mount ",
+                             b"Can't remount readonly on ", b'Failed to make / slave',
+                             b'Failed to mount tmpfs', b'setting up newroot bind'),
+              'pivot_root': (b'pivot_root',),
+              'exec': (b'execvp ',),
+              'capability': (b'capset failed', b'capget failed',
+                             b'Adding ambient capability ', b'Dropping capability '),
+              'id_mapping': (b'setting up uid map', b'setting up gid map',
+                             b'error writing to setgroups'),
+          }
+
+          def classify_bwrap(data):
+              if len(data) <= 65536:
+                  for category, prefixes in BWRAP_FAILURES.items():
+                      if any(data.startswith(b'bwrap: ' + prefix) for prefix in prefixes):
+                          return category
+              return 'unknown'
 
           class CheckFailure(Exception):
               pass
@@ -127,10 +148,14 @@ jobs:
                   b'namespace_identity', b'namespace_setup', b'precondition',
                   b'inspection',
               )}
+              labels.update(('relay_ci_namespace_level' + str(level) + '=' + category + '\n').encode('ascii')
+                            for level in (1, 2) for category in (*BWRAP_FAILURES, 'unknown'))
               if result.returncode and result.stdout in labels:
                   raise CheckFailure(result.stdout.decode('ascii').strip())
-              require(result.returncode == 0 and not result.stderr,
-                      'relay_ci_namespace_setup=failed')
+              if result.returncode or result.stderr:
+                  # depth=2 starts level 1; the nested depth=1 starts level 2.
+                  label = 'relay_ci_namespace_level' + str(3 - depth) + '='
+                  raise CheckFailure(label + classify_bwrap(result.stderr))
               require(result.stdout == b'relay_ci_namespace=pass\n',
                       'relay_ci_namespace_output=failed')
 
@@ -237,19 +262,44 @@ jobs:
         run: |
           /usr/bin/python3 -I -S -B - <<'PY'
           import re, subprocess
+          def records(data):
+              if len(data) > 262144:
+                  return []
+              keys = rb'(?<!\S)(apparmor|operation|profile|comm|capname|class|info)='
+              parsed = []
+              for line in data.splitlines():
+                  pairs = re.findall(keys + rb'"([^"\\\r\n]*)"(?=\s|$)', line)
+                  # Reject duplicates and malformed or escaped known fields.
+                  if len(pairs) == len(dict(pairs)) == len(re.findall(keys, line)):
+                      parsed.append(dict(pairs))
+              return parsed
           def classify(data):
-              fields = [re.findall(rb'(?<!\S)(apparmor|operation|profile|comm|capname)="([^"\\\r\n]*)"(?=\s|$)', line) for line in data.splitlines()]
-              records = [dict(pairs) for pairs in fields if len(dict(pairs)) == len(pairs)]
-              denied = [r for r in records if all(r.get(k) == v for k, v in {b'apparmor': b'DENIED', b'operation': b'capable', b'comm': b'bwrap', b'capname': b'net_admin'}.items())]
+              denied = [r for r in records(data) if all(r.get(k) == v for k, v in {b'apparmor': b'DENIED', b'operation': b'capable', b'comm': b'bwrap', b'capname': b'net_admin'}.items())]
               if any(r.get(b'profile') == b'unpriv_bwrap' for r in denied):
                   return 'known_bwrap_profile_net_admin_denial'
               return 'apparmor_capability_denial' if denied else 'unknown'
-          result = 'unknown'
+          def classify_profile(data):
+              denied = [r for r in records(data) if r.get(b'apparmor') == b'DENIED' and r.get(b'profile') == b'relay-ci']
+              categories = (
+                  ('disconnected_path_denial', b'info', (b'Failed name lookup - disconnected path',)),
+                  ('pivot_root_denial', b'operation', (b'pivotroot',)),
+                  ('mount_denial', b'operation', (b'mount', b'umount')),
+                  ('exec_denial', b'operation', (b'exec',)),
+                  ('capability_denial', b'operation', (b'capable',)),
+                  ('file_denial', b'class', (b'file',)),
+              )
+              for category, key, values in categories:
+                  if any(r.get(key) in values for r in denied):
+                      return category
+              return 'unknown'
+          result = profile_result = 'unknown'
           try:
               observed = subprocess.run(['sudo', '-n', 'journalctl', '-k', '--no-pager', '-n', '400', '--output=cat'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10, check=False)
               if observed.returncode == 0 and len(observed.stdout) <= 262144:
                   result = classify(observed.stdout)
+                  profile_result = classify_profile(observed.stdout)
           except (OSError, subprocess.SubprocessError):
               pass
           print('namespace_network_policy=' + result)
+          print('relay_ci_profile_policy=' + profile_result)
           PY
