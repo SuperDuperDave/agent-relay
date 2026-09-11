@@ -14,6 +14,19 @@ existing Relay lifecycle/brief handler: duplicate handlers may create duplicate
 observations and repeated context. Invocation-only arguments provide opt-in
 without persistent provider-setting edits; native review remains separate.
 
+For a first installation, use the [setup guide](SETUP.md). Once the repository
+is enrolled, the [interactive launch helper](../examples/launch_provider.py)
+provides the invocation example below without manual path/argument editing:
+
+```sh
+/usr/bin/python3 -I -S -B examples/launch_provider.py codex --repo /absolute/enrolled/checkout
+```
+
+Run it from the reviewed source checkout; use `claude` for the other provider.
+Add `--json` to prepare a launch plan without starting a provider. The helper
+comes with current source, not the v0.1.0 runtime archive. Its plan does not
+establish native trust, model-visible context or working provider tools.
+
 ## Command and scope
 
 A reviewed hook definition must invoke the absolute account-installed launcher:
@@ -294,8 +307,8 @@ The exact native experimental schema exposes155 client request variants and
 only hooks/list as a dedicated hook method, not a hook trust/revoke API. Native
 CLI /hooks review remains a separately witnessed step, not an invented RPC or
 raw trust-file edit. These historical probes did not verify model context,
-exact session resume or Git commit authority; the bounded workflow above has
-separate evidence for those steps. The receipts linked in this section retain
+exact session resume or controller-created Git commits; the bounded workflow
+above has separate evidence for those steps. The receipts linked in this section retain
 their original scope and contain no authenticated model run.
 
 Claude2.0.5 accepted inline settings and dispatched startup without credentials,

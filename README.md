@@ -21,6 +21,30 @@ Created by David Jones with AI assistance. Codex contributed implementation,
 testing and release work; Claude performed the bounded native review described
 in the provider walkthrough.
 
+## Set up for your project
+
+Start with the [human and coding-agent setup guide](docs/SETUP.md). It connects
+release installation, repository enrollment, ledger checks and provider launches
+and explains what is verified at each step. Paste this into a coding agent in
+the Git repository you want to use:
+
+```text
+Set up Agent Relay v0.1.0 for this repository following
+https://github.com/SuperDuperDave/agent-relay/blob/main/docs/SETUP.md.
+Check compatibility first, then install the reviewed release, enroll this
+repository and prepare launches for my existing providers. Preserve existing
+work and permissions. Report verified readiness and the exact remaining steps;
+provider launches and native trust remain separate actions.
+```
+
+The current runtime requires a compatible **x86-64 Linux** environment; WSL2 is
+the documented Windows route. The demo below also requires Bubblewrap and nested
+namespaces; those are not prerequisites for normal Relay installation.
+
+After setup, the [interactive launch helper](examples/launch_provider.py) finds
+the selected provider and supplies the reviewed hooks without editing its
+settings. `--json` prepares a machine-readable plan without starting a provider.
+
 ## Try the no-account demo
 
 First check the [platform prerequisites](docs/SUPPORT.md#exercised-profile),
