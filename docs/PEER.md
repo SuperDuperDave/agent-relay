@@ -59,9 +59,11 @@ Task text goes through stdin as data, never shell evaluation or command-line
 prompt interpolation. Use `--task-file -` to supply it from stdin directly.
 
 The task limit is 64 KiB. Larger artifacts belong in the repository and can be
-referenced by the task. The default bounds are 600 seconds and 20 native turns;
-`--timeout` and `--max-turns` set explicit bounds for the call. Relay makes one
-invocation and never automatically retries it.
+referenced by the task. The default timeout is 600 seconds; use `--timeout` to
+adjust it for the work. Relay imposes no native turn cap by default. Supply
+`--max-turns` when you want an explicit turn limit. Choose bounds proportionate
+to the task so the peer has time to inspect evidence and produce a useful
+answer. Relay makes one invocation and never automatically retries it.
 
 Normal permission rules remain in force. When a tool needs approval that this
 noninteractive call cannot obtain, Claude denies it and reports the denial.

@@ -300,7 +300,7 @@ def peer_main(argv=None):
     parser.add_argument("--resume", type=_session, help="exact peer session UUID from a previous result; no latest-session lookup")
     parser.add_argument("--output-dir", type=Path, help="new private evidence directory; default: retained temporary directory")
     parser.add_argument("--timeout", type=_positive, default=600, help="call wall-time limit in seconds (default: 600)")
-    parser.add_argument("--max-turns", type=_positive, default=20, help="native turn limit (default: 20)")
+    parser.add_argument("--max-turns", type=_positive, help="optional native turn limit; omitted by default")
     parser.add_argument("--dry-run", action="store_true", help="validate task/configuration and print a plan; no provider or evidence writes")
     parser.add_argument("--json", action="store_true", help="return a structured result; this DOES launch unless --dry-run is used")
     args = parser.parse_args(argv)
@@ -322,8 +322,10 @@ def peer_main(argv=None):
         stage = "relay_configuration"
         plan = prepare("claude", args.repo, args.relay, args.provider)
         native = [*plan["argv"], "--print", "--output-format", "json",
-                  "--permission-prompts", "none", "--max-turns", str(args.max_turns),
-                  "--resume" if args.resume else "--session-id", session]
+                  "--permission-prompts", "none"]
+        if args.max_turns is not None:
+            native.extend(["--max-turns", str(args.max_turns)])
+        native.extend(["--resume" if args.resume else "--session-id", session])
         envelope["repo"] = plan["repo"]
         if args.dry_run:
             print(json.dumps({**envelope, "state": "call_prepared", "argv": native,

@@ -93,7 +93,7 @@ class PeerTests(unittest.TestCase):
         self.assertEqual(self.environment, receipt["env"])
         self.assertEqual(str(self.repo), receipt["cwd"])
         self.assertEqual([str(self.provider), *self.native_arguments, "--print", "--output-format", "json",
-                          "--permission-prompts", "none", "--max-turns", "20", "--session-id",
+                          "--permission-prompts", "none", "--session-id",
                           result["session_id"]], receipt["argv"])
         self.assertEqual([str(self.relay), "--repo", str(self.repo), "--json", "provider-config",
                           "--client", "claude"], json.loads((self.base / "relay-argv.json").read_text()))
@@ -109,11 +109,13 @@ class PeerTests(unittest.TestCase):
     def test_followup_resumes_exact_peer_and_reads_task_file(self):
         _, first, _ = self.invoke()
         self.task.write_text("Follow up on the original answer. 雪", encoding="utf-8")
-        code, result, _ = self.invoke("--resume", first["session_id"])
+        code, result, _ = self.invoke("--resume", first["session_id"], "--max-turns", "37")
         self.assertEqual(0, code)
         self.assertEqual(first["session_id"], result["session_id"])
         argv = json.loads(self.receipt.read_text())["argv"]
         self.assertEqual(["--resume", first["session_id"]], argv[-2:])
+        self.assertEqual(1, argv.count("--max-turns"))
+        self.assertEqual("37", argv[argv.index("--max-turns") + 1])
         self.assertNotIn("--continue", argv)
         self.assertNotIn("--session-id", argv)
         self.assertEqual(self.task.read_bytes(), (self.base / "received-task.txt").read_bytes())
