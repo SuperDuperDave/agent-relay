@@ -148,6 +148,7 @@ required human decision; it must not silently widen permissions to finish.
 | `uncertain` | The call started but timed out, was interrupted, or lacked a valid matching result. External work may already have happened. |
 | `needs_attention`, `permission_denials`, `terminal_reason` | Check these even when the process exits zero. Tool denials and stopped/deferred work can accompany useful output. |
 | `session_id` | The verified native session identity: a UUID for Claude, an opaque native thread ID for Codex. Claude's requested UUID is recorded before launching; Codex assigns a fresh thread ID during initialization. Resume always targets the exact supplied identity. |
+| `requested_session_id` | The requested identity, when known before launch. It remains unverified until native output confirms it. A missing verified `session_id` does not prove that no session started; the requested identity alone is not a resume instruction. |
 | `observed_session_id` | If present on an identity mismatch, the unverified native identity reported by the provider. It is diagnostic, not a resume instruction; inspect the retained raw output. |
 | `relay_acknowledgement`, `workflow_completion` | Always `not_checked` by the helper. Inspect actual ledger state and artifacts separately. |
 
@@ -164,9 +165,15 @@ For Codex and Claude `--live-input`, capture is limited to 16 MiB, plus one byte
 to detect overflow. Exceeding that bound sets `truncated`, stops interpretation,
 closes native input and leads to owned-process cleanup. Only the captured prefix
 is retained; a previously observed answer survives with `needs_attention`.
-Claude calls without `--live-input` capture raw stdout directly and apply the
-16 MiB limit when reading it for interpretation. Their raw file can exceed that
-summary limit. Native stderr and directly captured stdout are not sealed: a
+Claude calls without `--live-input` capture raw stdout directly. Their
+`stdout_observation.scope` is `bounded_read`: the byte count and digest describe
+the read prefix, with the same 16 MiB plus one byte limit. Their raw file can
+exceed that summary limit. After timeout or interruption, this observation is
+still recorded, without interpreting those bytes as a completed result.
+If the read fails, `stdout_observation_error` reports unavailable observation;
+the byte count and digest remain unknown. A successful empty read establishes
+only that no stdout bytes were observed, not that the provider was idle.
+Native stderr and directly captured stdout are not sealed: a
 provider descendant may still hold their file descriptors. Compare observed
 bytes before reusing a summary if they changed.
 
