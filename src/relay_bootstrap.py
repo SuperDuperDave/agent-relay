@@ -1378,6 +1378,8 @@ class Distribution:
         return {"can_disable": selector is not None and not issues, "issues": issues,
                 "expected_selector": selector["observation"] if selector else None,
                 "launcher": str(self.bin_directory / "relay"),
+                "preferred_launcher": str(self.bin_directory / "multithread"),
+                "preferred_alias_removed": False,
                 "retained_selector_pattern": str(self.bin_directory / ".relay-disabled-<id>"),
                 "retains": [str(self.root)], "removes_release_files": False,
                 "enrollment_changed": False, "hooks_changed": False,
@@ -1614,7 +1616,6 @@ class Distribution:
             self._check_expected(observe(), expected)
             verify_lock()
             verify_prepared()
-            self._ensure_command_alias(bin_directory)
             if current is None:
                 # Atomic no-replace first publication; preserve any occupant.
                 os.symlink(target, "relay", dir_fd=bin_directory.fd)
@@ -1635,6 +1636,9 @@ class Distribution:
                     raise BootstrapError("launcher exchange is uncertain; displaced object preserved as " + temporary)
                 # Retain the displaced selector. Check-then-unlink could
                 # delete a different object substituted after validation.
+            # Publish the verified selector before exposing its preferred alias.
+            # An interrupted first publication can be inspected through relay.
+            self._ensure_command_alias(bin_directory)
             _checkpoint("launcher-published")
             os.fsync(bin_directory.fd)
             verify_lock()
@@ -1664,7 +1668,7 @@ def run_installed(release_id, activation_id, argv):
                               installation.root / "releases" / release_id / "payload", release.bodies)
     runtime.install_importer()
     from relay_runtime.cli import main as dispatch
-    return dispatch(argv)
+    return dispatch(argv, command_alias_check=installation._command_alias)
 
 
 def main(argv=None):

@@ -91,6 +91,8 @@ status requires the separately [initialized repository](engineering/INSTALLATION
 | Streaming stdout limit exceeded | Streaming calls retain only a bounded prefix, close native input and clean up their owned process. A previously observed answer can survive with `needs_attention`; later output is unavailable. See [capture limits](PEER.md#read-the-result-before-continuing). |
 
 For a damaged launcher, follow [installation recovery](engineering/INSTALLATION.md).
+If you own an unrelated command occupying the `multithread` path, deliberately
+relocate it through its own setup before retrying; Multithread does not move or delete it.
 For removal, follow [verified code uninstall](engineering/UNINSTALL.md).
 Neither workflow is a general ledger purge, provider logout, automatic claim
 expiry or permission to delete unknown state. If no separately verified release

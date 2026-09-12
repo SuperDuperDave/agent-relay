@@ -58,6 +58,74 @@ print(json.dumps({'source_absent': True, 'shared_work_preserved': True,
 '''
 
 
+_FOREIGN_ALIAS_HELPERS = profile._COMMON + r'''
+assert not pathlib.Path('/source').exists() and not pathlib.Path('/bundle').exists()
+base = [str(compatibility_launcher), '--repo', str(project), '--json']
+call(base + ['init'])
+git = ['/usr/bin/git', '-C', str(project), '-c', 'core.hooksPath=/dev/null',
+       '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+       '-c', 'commit.gpgsign=false']
+subprocess.run(git + ['commit', '--allow-empty', '-qm', 'Synthetic alias refusal witness'], check=True)
+call(base + ['claim', 'code:alias', '--agent', 'codex', '--session', 'alias-owner',
+             '--purpose', 'Preserve ownership'])
+call(base + ['signal', 'work.handoff', '--agent', 'codex', '--session', 'alias-owner',
+             '--target', 'claude', '--work-id', 'alias-witness', '--commit', 'HEAD',
+             '--summary', 'Preserve pending review'])
+before_events = call(base + ['events'])
+before_status = call(base + ['status'])
+activation = call([str(compatibility_launcher), 'runtime', 'status'])['activation']
+
+provider = pathlib.Path('/tmp/never-run-provider')
+provider.write_text('#!/bin/sh\n/usr/bin/touch /tmp/provider-was-started\nexit 1\n')
+provider.chmod(0o700)
+task = pathlib.Path('/tmp/alias-task.txt')
+task.write_text('Read-only fixture task; report any inability to inspect.\n')
+assert launcher.is_symlink() and os.readlink(launcher) == str(compatibility_launcher)
+launcher.unlink()
+launcher.write_text('#!/bin/sh\n/usr/bin/touch /tmp/foreign-command-was-started\nexit 1\n')
+launcher.chmod(0o700)
+before_home = snapshot(home)
+before_project = snapshot(project)
+before_foreign = snapshot(foreign)
+invocations = [
+    ['setup', '--check', '--codex', str(provider), '--claude', str(provider)],
+    ['setup', '--apply', '--codex', str(provider), '--claude', str(provider)],
+    ['update', '--check'],
+    ['launch', 'codex', '--provider', str(provider)],
+    ['launch', 'claude', '--provider', str(provider)],
+    ['peer', 'codex', '--provider', str(provider), '--task-file', str(task), '--dry-run'],
+    ['peer', 'claude', '--provider', str(provider), '--task-file', str(task), '--dry-run'],
+]
+for arguments in invocations:
+    refused = subprocess.run(base + arguments, cwd=project, text=True,
+                             capture_output=True, timeout=15)
+    assert refused.returncode == 74 and refused.stdout == '', (arguments, refused)
+    assert 'preferred command is unverified' in refused.stderr, (arguments, refused.stderr)
+    assert 'relay runtime inspect' in refused.stderr, refused.stderr
+    assert not pathlib.Path('/tmp/foreign-command-was-started').exists(), arguments
+    assert not pathlib.Path('/tmp/provider-was-started').exists(), arguments
+    assert snapshot(home) == before_home, (arguments, 'account state changed')
+    assert snapshot(project) == before_project, (arguments, 'project state changed')
+    assert snapshot(foreign) == before_foreign, (arguments, 'foreign state changed')
+
+inspection = call([str(compatibility_launcher), 'runtime', 'inspect'])
+assert inspection['state'] == 'degraded', inspection
+assert inspection['command_alias'] is None and inspection['activation'] == activation
+assert any(issue['scope'] == 'command-alias' and issue['code'] == 'unverified'
+           for issue in inspection['issues']), inspection
+assert inspection['writes'] == [] and not inspection['enrollment_changed']
+assert snapshot(home) == before_home and snapshot(project) == before_project
+assert snapshot(foreign) == before_foreign
+assert call(base + ['events']) == before_events
+assert call(base + ['status']) == before_status
+assert not pathlib.Path('/tmp/foreign-command-was-started').exists()
+assert not pathlib.Path('/tmp/provider-was-started').exists()
+print(json.dumps({'source_absent': True, 'refused_invocations': len(invocations),
+                  'shared_work_preserved': True, 'foreign_commands_started': 0,
+                  'providers_started': 0, 'runtime_inspection': 'degraded'}))
+'''
+
+
 class PublicSetupTests(unittest.TestCase):
     def test_source_absent_setup_preserves_shared_work_and_never_launches_providers(self):
         fixture = profile.PublicProfileTests(methodName='test_public_installed_ledger_in_fresh_rootless_account')
@@ -72,6 +140,21 @@ class PublicSetupTests(unittest.TestCase):
         result = fixture.sandbox(_SETUP, release_id, include_source=False)
         self.assertEqual({'source_absent': True, 'shared_work_preserved': True,
                           'providers_started': 0, 'linked_worktree_verified': True}, result)
+
+    def test_source_absent_legacy_helpers_refuse_foreign_preferred_command_before_execution(self):
+        fixture = profile.PublicProfileTests(methodName='test_public_installed_ledger_in_fresh_rootless_account')
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        built = subprocess.run(['/usr/bin/python3', '-I', '-S', '-B', str(profile.SOURCE / 'relay_bootstrap.py'),
+            'build-release', '--output', str(fixture.bundle), '--version', '0.4.0-alias-refusal-witness'],
+            env=fixture.env, text=True, capture_output=True, timeout=20)
+        self.assertEqual(0, built.returncode, built.stdout + built.stderr)
+        release_id = json.loads(built.stdout)['release_id']
+        fixture.sandbox(profile._INSTALL, release_id, include_source=True)
+        result = fixture.sandbox(_FOREIGN_ALIAS_HELPERS, release_id, include_source=False)
+        self.assertEqual({'source_absent': True, 'refused_invocations': 7,
+                          'shared_work_preserved': True, 'foreign_commands_started': 0,
+                          'providers_started': 0, 'runtime_inspection': 'degraded'}, result)
 
 
 if __name__ == '__main__':

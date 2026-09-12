@@ -381,7 +381,19 @@ def _interpret(directory, envelope):
     })
     envelope["needs_attention"] = bool(denials) or envelope["state"] != "returned" or (
         native.get("terminal_reason") not in (None, "end_turn", "completed"))
-    envelope["message"] = "Assess the answer and durable Multithread evidence; a returned turn is not workflow completion."
+    if envelope["state"] == "provider_error":
+        causes = []
+        if native["is_error"]:
+            causes.append("The provider marked its result as an error.")
+        elif native["subtype"] != "success":
+            causes.append("The provider returned a non-success result.")
+        if envelope["process_exit_code"] is None:
+            causes.append("The provider process exit was not observed.")
+        elif envelope["process_exit_code"] != 0:
+            causes.append(f"The provider process exited with code {envelope['process_exit_code']}.")
+        envelope["message"] = " ".join(causes) + " Inspect retained output and evidence before continuing."
+    else:
+        envelope["message"] = "Assess the answer and durable Multithread evidence; a returned turn is not workflow completion."
 
 
 def peer_main(argv=None):
@@ -621,6 +633,17 @@ def _display_peer(envelope):
         ("owned_process_cleanup", "Process exit"),
         ("stdout_completion", "Output completion"),
     )]
+    if envelope["state"] == "provider_error":
+        details.append(("Provider result", envelope.get("provider_subtype")))
+        errors = envelope.get("provider_errors")
+        if isinstance(errors, list):
+            first_error = next((item for item in errors[:8] if isinstance(item, str) and item), None)
+            if first_error is not None:
+                details.append(("Provider error", first_error))
+                if len(errors) > 1:
+                    details.append(("Provider errors", f"showing 1 of {len(errors)} retained diagnostics; inspect retained output for the rest."))
+        if envelope.get("provider_errors_truncated"):
+            details.append(("Provider errors", "details were truncated; inspect retained output for available detail."))
     fault = envelope.get("control_fault")
     if isinstance(fault, dict):
         details.append(("Peer input", fault.get("detail")))
@@ -638,6 +661,10 @@ def _display_peer(envelope):
     print(envelope.get("message", "Inspect the peer result."))
     if envelope["session_id"]:
         print(f"Peer session: {envelope['session_id']}")
+    observed_session = envelope.get("observed_session_id")
+    if isinstance(observed_session, str) and observed_session:
+        print(f"Observed session (unverified): {observed_session[:2000]}" +
+              (" [Detail truncated.]" if len(observed_session) > 2000 else ""))
     if envelope["evidence_directory"]:
         print(f"Local evidence: {envelope['evidence_directory']}")
     if envelope.get("needs_attention"):

@@ -128,7 +128,7 @@ class CommandAliasTests(unittest.TestCase):
         self.assertFalse(self.distribution.uninstall_plan()["can_uninstall"])
         self.assertEqual(before, snapshot(self.base))
 
-    def test_interrupted_alias_publication_is_inactive_and_can_be_deliberately_resumed(self):
+    def test_interrupted_alias_publication_keeps_the_observable_selector_and_can_be_resumed(self):
         def cut(stage):
             if stage == "command-alias-published":
                 raise OSError("artificial publication interruption")
@@ -137,13 +137,44 @@ class CommandAliasTests(unittest.TestCase):
                 self.install()
         self.assertTrue(self.preferred.is_symlink())
         alias = self.preferred.lstat()
-        self.assertFalse(self.compatibility.is_symlink())
+        self.assertTrue(self.compatibility.is_symlink())
         status = self.distribution.status()
-        self.assertFalse(status["installed"])
-        self.assertFalse(status["preferred_command_available"])
-        self.assert_same_runtime(self.install())
+        self.assertTrue(status["installed"])
+        self.assertTrue(status["preferred_command_available"])
+        self.assert_same_runtime(self.install(expected=status["activation"]["activation_id"]))
         self.assertEqual((alias.st_dev, alias.st_ino),
                          (self.preferred.lstat().st_dev, self.preferred.lstat().st_ino))
+
+    def test_foreign_selector_during_first_publication_does_not_gain_the_preferred_alias(self):
+        symlink = os.symlink
+        def occupied(target, name, **kwargs):
+            if name == "relay":
+                fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o700,
+                             dir_fd=kwargs["dir_fd"])
+                os.write(fd, b"artificial unrelated executable\n")
+                os.close(fd)
+            return symlink(target, name, **kwargs)
+        with mock.patch.object(os, "symlink", side_effect=occupied):
+            with self.assertRaises(FileExistsError):
+                self.install()
+        self.assertEqual(b"artificial unrelated executable\n", self.compatibility.read_bytes())
+        self.assertFalse(self.preferred.is_symlink())
+        self.assertFalse(self.preferred.exists())
+
+    def test_alias_creation_failure_leaves_a_verified_selector_for_deliberate_recovery(self):
+        symlink = os.symlink
+        def unavailable(target, name, **kwargs):
+            if name == "multithread":
+                raise OSError("artificial alias creation failure")
+            return symlink(target, name, **kwargs)
+        with mock.patch.object(os, "symlink", side_effect=unavailable):
+            with self.assertRaises(OSError):
+                self.install()
+        status = self.distribution.status()
+        self.assertTrue(status["installed"])
+        self.assertFalse(status["preferred_command_available"])
+        self.assertEqual("degraded", self.distribution.inspect()["state"])
+        self.assert_same_runtime(self.install(expected=status["activation"]["activation_id"]))
 
     def test_uninstall_removes_both_names_and_preserves_records_and_unrelated_state(self):
         self.install()

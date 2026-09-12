@@ -312,7 +312,7 @@ def _run_worker(access, args, argv):
         return code if code >= 0 else 1
 
 
-def main(argv=None, *, registry=None):
+def main(argv=None, *, registry=None, command_alias_check=None):
     raw = list(argv if argv is not None else sys.argv[1:])
     if "--json" in raw:
         raw = ["--json"] + [item for item in raw if item != "--json"]
@@ -336,6 +336,14 @@ def main(argv=None, *, registry=None):
         if args.state_home is not None or "RELAY_HOME" in os.environ:
             raise StateError("installed Multithread refuses state-directory overrides")
         if args.command in {"launch", "peer", "setup", "update"}:
+            # A compatibility invocation must verify the preferred alias before
+            # any helper executes it. Keep hooks and read-only runtime diagnosis
+            # outside this check; an unavailable observation stays nonblocking.
+            if command_alias_check is not None:
+                try:
+                    command_alias_check()
+                except (OSError, RuntimeError) as exc:
+                    raise StateError("preferred command is unverified; use relay runtime inspect or the reviewed release installer") from exc
             # Native providers retain their normal environment and sandbox stack.
             # Each helper obtains its config via a separate admitted ledger worker;
             # never launch a provider in the worker's closed environment/Landlock.
