@@ -171,13 +171,21 @@ class PeerTests(unittest.TestCase):
 
     def test_termination_signals_stop_native_group_and_retain_uncertain_result(self):
         self.configure(sleep=True)
-        for signum in (signal.SIGTERM, signal.SIGHUP):
+        # This cancellation fixture explicitly opts into termination signals;
+        # the invoking shell or CI runner may have ignored them on entry.
+        wrapper_entry = ("import runpy, signal, sys\n"
+                         "for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):\n"
+                         "    signal.signal(number, signal.SIG_DFL)\n"
+                         "sys.argv = sys.argv[1:]\n"
+                         "runpy.run_path(sys.argv[0], run_name='__main__')\n")
+        for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             with self.subTest(signal=signum.name):
                 self.receipt.unlink(missing_ok=True)
                 self.calls.unlink(missing_ok=True)
                 evidence = self.base / f"signal-{signum.name}"
                 wrapper = subprocess.Popen(
-                    [sys.executable, "-I", "-S", "-B", str(ROOT / "examples" / "call_peer.py"),
+                    [sys.executable, "-I", "-S", "-B", "-c", wrapper_entry,
+                     str(ROOT / "examples" / "call_peer.py"),
                      "claude", "--repo", str(self.repo), "--relay", str(self.relay),
                      "--provider", str(self.provider), "--task-file", str(self.task),
                      "--output-dir", str(evidence), "--timeout", "15", "--json"],
@@ -255,6 +263,46 @@ class PeerTests(unittest.TestCase):
         self.assertEqual(-signal.SIGTERM, result["process_exit_code"])
         self.assertEqual(result, json.loads((Path(result["evidence_directory"]) / "result.json").read_text()))
         self.assertEqual(handlers, {number: signal.getsignal(number) for number in handlers})
+
+    def test_inherited_ignored_hangup_stays_ignored_through_call(self):
+        original = peer.prepare
+
+        def check_ignored_hangup(*args, **kwargs):
+            self.assertEqual(signal.SIG_IGN, signal.getsignal(signal.SIGHUP))
+            os.kill(os.getpid(), signal.SIGHUP)
+            return original(*args, **kwargs)
+
+        previous = signal.signal(signal.SIGHUP, signal.SIG_IGN)
+        try:
+            with mock.patch.object(peer, "prepare", side_effect=check_ignored_hangup):
+                code, result, _ = self.invoke()
+            self.assertEqual(signal.SIG_IGN, signal.getsignal(signal.SIGHUP))
+            self.assertEqual(0, code)
+            self.assertEqual("returned", result["state"])
+            self.assertEqual("call\n", self.calls.read_text())
+        finally:
+            signal.signal(signal.SIGHUP, previous)
+
+    def test_termination_after_provider_exit_preserves_returned_result(self):
+        handlers = {number: signal.getsignal(number)
+                    for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+        original = peer._interpret
+
+        def terminate_during_interpretation(directory, envelope):
+            self.assertEqual(0, envelope["process_exit_code"])
+            os.kill(os.getpid(), signal.SIGTERM)
+            return original(directory, envelope)
+
+        with mock.patch.object(peer, "_interpret", side_effect=terminate_during_interpretation):
+            code, result, _ = self.invoke()
+        self.assertEqual(0, code)
+        self.assertEqual("returned", result["state"])
+        self.assertEqual("Useful peer answer 雪", result["result"])
+        self.assertFalse(result["needs_attention"])
+        self.assertEqual(result["requested_session_id"], result["session_id"])
+        self.assertEqual(result, json.loads((Path(result["evidence_directory"]) / "result.json").read_text()))
+        self.assertEqual(handlers, {number: signal.getsignal(number) for number in handlers})
+        self.assertEqual("call\n", self.calls.read_text())
 
     def test_termination_during_spawn_preserves_handle_for_cleanup(self):
         handlers = {number: signal.getsignal(number)

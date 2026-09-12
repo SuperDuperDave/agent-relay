@@ -100,7 +100,9 @@ work before deciding whether to continue. Relay stops only the process group
 created for that call. Killing a process does not prove that prior external
 operations were undone. Never release someone else's claim to tidy the result.
 SIGINT, SIGTERM and SIGHUP also trigger owned-process cleanup and an uncertain
-receipt. SIGKILL, host failure and a provider that escapes that process group
+receipt unless the caller already ignores that signal (for example, SIGHUP
+under `nohup`). Once the provider exits, ordinary signals allow the bounded
+result read and receipt to finish. SIGKILL, host failure and a provider that escapes that process group
 cannot be handled this way. Normal completion does not kill background work
 merely because it inherited an output descriptor.
 
@@ -139,9 +141,23 @@ Claude wrote a code review, acknowledged the exact handoff and released its
 claim; its answer returned to the initiating Codex task without manual message
 forwarding. The caller inspected the artifact and ledger and acted on the review.
 The call took 520 seconds and 13 provider turns, with no reported permission
-denials. This establishes that scoped source-entry call/return, not native
-verification of a newly installed public bundle, independent onboarding or
-broad reliability. Native exact-session resume remains unverified by this check.
+denials. That observation applies to the source entry.
+
+The reviewed bundle was then installed through the normal account-level upgrade.
+The initiating Codex task used the installed `relay peer` command to resume that
+exact Claude session for a review of the fixes. Claude wrote a separate follow-up
+artifact, acknowledged its new handoff and released its claim. The matching
+result returned automatically in 359 seconds, with 12 provider-reported turns
+and no reported permission denials. The caller independently checked both review
+artifacts, unchanged input commits and ledger events. This verifies installed
+call/return and native exact-session resume on that existing WSL2/ext4 developer
+profile with Claude Code 2.1.267. Subsequent signal refinements have separate
+regression evidence; they were not exercised by terminating a paid review.
+
+These observations do not establish independent onboarding, broad reliability,
+net usage savings or waking an independently idle task. The source-absent
+installation checks remain separate from the normal native runs, which did not
+hide source files or alter provider capabilities for isolation.
 
 For source development, `examples/call_peer.py` invokes the same helper against
 a reviewed installed Relay selected with `--relay`. This is a source entry point,

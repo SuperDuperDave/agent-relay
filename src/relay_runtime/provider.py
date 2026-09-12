@@ -132,7 +132,7 @@ def prepare(client, repo, relay, provider):
 
 
 def launch_main(argv=None):
-    parser = argparse.ArgumentParser(description="Review invocation-only Relay hooks and start an interactive provider.")
+    parser = argparse.ArgumentParser(prog="relay launch", description="Review invocation-only Relay hooks and start an interactive provider.")
     parser.add_argument("client", choices=("codex", "claude"))
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="enrolled checkout; default: current directory")
     parser.add_argument("--relay", type=Path, help="reviewed absolute installed launcher; default: OS-account installation")
@@ -253,7 +253,9 @@ def _call_signals():
     previous = {}
     try:
         for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-            previous[number] = signal.signal(number, interrupt)
+            handler = signal.getsignal(number)
+            if handler != signal.SIG_IGN:
+                previous[number] = signal.signal(number, interrupt)
         yield state
     finally:
         for number, handler in previous.items():
@@ -323,7 +325,7 @@ def _interpret(directory, envelope):
 
 
 def peer_main(argv=None):
-    parser = argparse.ArgumentParser(description="Call one native Claude turn and return its result to the initiating task.")
+    parser = argparse.ArgumentParser(prog="relay peer", description="Call one native Claude turn and return its result to the initiating task.")
     parser.add_argument("client", choices=("claude",))
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="enrolled peer checkout")
     parser.add_argument("--relay", type=Path, help="reviewed absolute installed Relay launcher")
@@ -405,6 +407,9 @@ def _run_peer(args, interruption):
                 envelope.update(state="uncertain", provider_started=True)
                 stage = "provider_call"
                 process.communicate(input=task, timeout=args.timeout)
+                # The provider has exited. Finish interpreting and recording
+                # its actual outcome even if an ordinary signal arrives now.
+                interruption["stopping"] = True
             except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
                 interruption["stopping"] = True
                 if process is not None:
