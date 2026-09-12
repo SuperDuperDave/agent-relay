@@ -1,9 +1,16 @@
 # Set up Multithread
 
-Install the **v0.2.0 preview**, enroll your Git repository and prepare native
+Install the **selected published preview**, enroll your Git repository and prepare native
 Codex/Claude collaboration from one entry point. The package includes setup,
-interactive launch, Claude peer calls and updates; no Relay source checkout is
+interactive launch, native peer calls and updates; no Relay source checkout is
 needed for these commands.
+
+This guide accompanies the **v0.3 source preview**, which adds Codex peer calls
+and live input. Check the selected release's version and package results before
+installation: v0.2.0 supports Claude call/return and exact-session resume, but
+lacks those v0.3 additions. To use the new helper with an older installed runtime,
+use the [peer source entry](PEER.md#use-the-source-entry) or build a
+[reviewed local bundle](engineering/INSTALLATION.md#build-a-local-preview-bundle).
 
 Multithread was previously called **Agent Relay**. The `relay` command, release
 filenames and repository URLs remain unchanged, including in the setup prompt
@@ -52,8 +59,9 @@ Use the exact launcher path printed by the installer, normally
 not edit shell `PATH`, provider settings, permissions or sign-ins, and setup does
 not execute a provider or start a model session.
 
-For a fixed version, replace `releases/latest/download/install.py` in the command
-with `releases/download/v0.2.0/install.py`. To inspect its embedded selection
+For a fixed published version, replace `releases/latest/download/install.py` in
+the command with `releases/download/v0.3.0/install.py` after confirming that tag
+lists the installer asset. To inspect its embedded selection
 without installing or enrolling, add `--check --json`. To install code without
 enrolling any project, omit `--enroll-repo`. The lower-level
 [offline guide](engineering/INSTALLATION.md) covers manual archive review,
@@ -141,9 +149,12 @@ diagnostics private and sanitize anything shared.
 
 ## Start collaborating
 
-The [native peer guide](PEER.md) leads through a scoped Claude task whose answer
+The [native peer guide](PEER.md) leads through a scoped task whose answer
 returns automatically to the calling agent, including exact-session follow-up.
-It uses the existing provider's normal environment and permission mode.
+The v0.2.0 command calls Claude; v0.3 also calls Codex and accepts input while its
+owned peer is running. Use the guide's source entry for those additions with an
+existing v0.2.0 installation.
+Calls use the existing provider's normal environment and permission mode.
 Subscription sign-in can be used; API keys or other provider configuration can
 change the billing path. Check that through the provider's normal interface.
 Relay does not certify account billing.
@@ -197,7 +208,7 @@ the archive or apply an update. When an update is available, the JSON includes
 observed activation with `--yes`. An agent should review that selection, then
 execute the exact argv when updating is authorized. Do not pass JSON through
 shell `eval`. Applying an unattended update requires those exact selection
-fields; `--yes` alone is insufficient. Use `--version 0.2.0` to select a fixed
+fields; `--yes` alone is insufficient. Use `--version 0.3.0` to select that fixed
 published version for inspection or interactive application.
 
 Updates run only when requested; there is no background updater. Running

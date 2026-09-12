@@ -50,7 +50,7 @@ def _parser():
             config = action.add_parser("provider-config", help="print reviewed invocation arguments without installing settings or launching a provider")
             config.add_argument("--client", required=True, choices=("codex", "claude"))
             for name, description in (("launch", "review hooks and start an interactive native provider"),
-                                      ("peer", "call Claude and return its result to this task"),
+                                      ("peer", "call Codex or Claude and return its result to this task"),
                                       ("setup", "check readiness or explicitly enroll this repository"),
                                       ("update", "review and explicitly install a public release update")):
                 native = action.add_parser(name, help=description, add_help=False)

@@ -35,6 +35,10 @@ PAYLOAD_MODULES = {
     "relay_runtime.confinement": "relay_runtime/confinement.py",
     "relay_runtime.cli": "relay_runtime/cli.py",
     "relay_runtime.provider": "relay_runtime/provider.py",
+    "relay_runtime.codex_peer": "relay_runtime/codex_peer.py",
+    "relay_runtime.claude_peer": "relay_runtime/claude_peer.py",
+    "relay_runtime.native_io": "relay_runtime/native_io.py",
+    "relay_runtime.peer_control": "relay_runtime/peer_control.py",
     "relay_runtime.setup": "relay_runtime/setup.py",
     "relay_runtime.update": "relay_runtime/update.py",
 }
@@ -47,7 +51,8 @@ _LEGACY_PAYLOAD_FILES = frozenset({
     "relay_runtime/admission.py", "relay_runtime/confinement.py", "relay_runtime/cli.py",
 })
 _PEER_PAYLOAD_FILES = _LEGACY_PAYLOAD_FILES | {"relay_runtime/provider.py"}
-_RELEASE_PAYLOAD_SETS = (_LEGACY_PAYLOAD_FILES, _PEER_PAYLOAD_FILES, PAYLOAD_FILES)
+_SETUP_PAYLOAD_FILES = _PEER_PAYLOAD_FILES | {"relay_runtime/setup.py", "relay_runtime/update.py"}
+_RELEASE_PAYLOAD_SETS = (_LEGACY_PAYLOAD_FILES, _PEER_PAYLOAD_FILES, _SETUP_PAYLOAD_FILES, PAYLOAD_FILES)
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
 _ID = re.compile(r"[0-9a-f]{32}\Z")
 _MAX_MEMBER = 1024 * 1024
