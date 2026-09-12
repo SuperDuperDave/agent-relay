@@ -141,7 +141,12 @@ class _Directory:
                             and info.st_uid == 0 and info.st_mode & stat.S_ISVTX)
         if (stat.S_IMODE(info.st_mode) & (0o077 if self.private else 0o022)
                 and not (system_temporary and not self.private)):
-            raise EnrollmentError("enrollment directory permissions are unsafe")
+            requirement = ("group/other access is not allowed for a private directory"
+                           if self.private else "group/other write access is not allowed")
+            raise EnrollmentError(
+                "enrollment directory permissions are unsafe at "
+                f"{json.dumps(str(self.path), ensure_ascii=True)} "
+                f"(observed mode {stat.S_IMODE(info.st_mode):04o}); {requirement}")
 
     def exists(self, name: str) -> bool:
         self.custody.verify()

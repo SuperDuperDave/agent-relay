@@ -336,6 +336,65 @@ class LaunchProviderTests(unittest.TestCase):
                 self.assertEqual(self.environment, observed["env"])
                 self.assertFalse((self.repo / "injected").exists())
 
+    def test_human_review_shows_validated_hooks_without_nested_settings(self):
+        for client in ("codex", "claude"):
+            plan = self.configuration(client)
+            # Descriptive metadata does not determine native behavior.
+            plan["events"] = ["incorrect-description"]
+            with (self.subTest(client=client),
+                  mock.patch.object(launch.subprocess, "run", return_value=self.mocked_result(plan)),
+                  mock.patch.object(launch.subprocess, "call") as call):
+                status, output, errors, _ = self.invoke(
+                    client=client, json_output=False, interactive=True, answer="no")
+            self.assertEqual(0, status, errors)
+            self.assertIn("Provider: " + client, output)
+            self.assertIn("Executable: " + str(self.provider), output)
+            self.assertIn("Checkout: " + str(self.repo), output)
+            self.assertIn("Hook command: " + plan["hook_command"], output)
+            self.assertIn("3-second timeout", output)
+            self.assertIn("SessionStart, UserPromptSubmit, Stop, SessionEnd", output)
+            self.assertEqual(client == "codex", "Interrupt" in output)
+            self.assertNotIn("incorrect-description", output)
+            self.assertNotIn("native_arguments", output)
+            self.assertNotIn("--settings", output)
+            self.assertIn("launch --json", output)
+            self.assertIn("unknown until observed", output)
+            call.assert_not_called()
+
+    def test_control_bearing_review_uses_exact_json_argv_and_safe_display(self):
+        self.repo = self.base / "checkout\n\x1b[2J\u202e"
+        self.repo.mkdir()
+        plan = self.configuration("claude")
+        with (mock.patch.object(launch.subprocess, "run", return_value=self.mocked_result(plan)),
+              mock.patch.object(launch.subprocess, "call", return_value=0) as call):
+            status, output, errors, _ = self.invoke(client="claude", json_output=False, interactive=True)
+        self.assertEqual(0, status, errors)
+        self.assertNotIn("\x1b", output)
+        self.assertNotIn("\u202e", output)
+        self.assertIn("checkout\\n\\u001b[2J\\u202e", output)
+        line = next(line for line in output.splitlines() if line.startswith("Hook command (JSON string): "))
+        self.assertEqual(plan["hook_command"], json.loads(line.split(": ", 1)[1]))
+        call.assert_called_once_with([str(self.provider), *plan["native_arguments"]], cwd=str(self.repo))
+
+    def test_review_preserves_accepted_literal_hook_spacing_for_native_trust(self):
+        for client in ("codex", "claude"):
+            plan = self.configuration(client)
+            original = plan["hook_command"]
+            hook = original.replace(" --repo ", "  --repo  ")
+            plan["hook_command"] = hook
+            plan["native_arguments"] = [
+                argument.replace(json.dumps(original, ensure_ascii=False),
+                                 json.dumps(hook, ensure_ascii=False))
+                for argument in plan["native_arguments"]]
+            with (self.subTest(client=client),
+                  mock.patch.object(launch.subprocess, "run", return_value=self.mocked_result(plan)),
+                  mock.patch.object(launch.subprocess, "call", return_value=0) as call):
+                status, output, errors, _ = self.invoke(client=client, json_output=False, interactive=True)
+            self.assertEqual(0, status, errors)
+            line = next(line for line in output.splitlines() if line.startswith("Hook command: "))
+            self.assertEqual("Hook command: " + hook, line)
+            call.assert_called_once_with([str(self.provider), *plan["native_arguments"]], cwd=str(self.repo))
+
     def test_relay_failure_and_timeout_keep_observation_unknown_and_do_not_retry(self):
         cases = (self.mocked_result(returncode=7),
                  subprocess.TimeoutExpired("fixture relay", 15, output="artificial private diagnostic"),
@@ -367,8 +426,7 @@ class LaunchProviderTests(unittest.TestCase):
             status, output, errors, _ = self.invoke(json_output=False, interactive=True)
         self.assertEqual(130, status)
         self.assertIn("inspect the provider if it had already started", errors)
-        self.assertIn('"hook_delivery": "unknown"', output)
-        self.assertIn('"provider_tools": "unknown"', output)
+        self.assertIn("Hook delivery and provider tools: unknown until observed", output)
         call.assert_called_once()
 
     def test_relative_missing_and_nonexecutable_provider_paths_refuse_before_relay(self):

@@ -8,36 +8,23 @@ Give your work additional threads while keeping its purpose, ownership, and
 results connected.
 
 Multithread lets coding agents coordinate across sessions and Git worktrees.
-Codex can call Claude Code for a scoped task, receive its answer and continue
-working.
+Either Codex or Claude can call a native peer for a scoped task, receive its
+answer and continue working.
 A durable local ledger keeps resource claims, commit-backed handoffs and explicit
 acknowledgements available across interruptions.
 
-Multithread was previously called **Agent Relay**. The preferred command is
-`multithread`; `relay` remains a compatibility entry point to the same installation
-and ledger. Release filenames and the
-[repository URL](https://github.com/SuperDuperDave/agent-relay) remain unchanged.
-
 - Call Claude or Codex through your existing provider installations and sign-ins,
-  and send updates while a peer is running with v0.3.
+  and send updates while a peer is running.
 - Claim shared resources with exact ownership that survives interrupted sessions.
 - Hand off an immutable Git commit and keep it pending until acknowledged.
 - Recover pending work after a restart; notifications and reads never consume it.
 
-**v0.4 preview.** Makes `multithread` the installed entry point and connects setup
-to a first scoped collaboration. The published v0.3 release already includes
-Codex peer calls, exact native thread resume and input to running peers. See the
-[commands and native verification scope](docs/PEER.md), including
-the retained interrupted calls and their separately observed artifacts.
-
-The installer below selects the published release, whose version and package
-results should be reviewed before installation. Install v0.4 or later to use
-the `multithread` commands shown here. Existing v0.3 installations use `relay`
-until updated. Installed Claude call/return and
-exact-session resume have separate v0.2 evidence on an existing Linux/WSL2
-developer profile. [Hosted checks](docs/CI.md) retain their named revisions.
-These observations do not establish fresh-account onboarding or broader
-platform support.
+This is a preview with [scoped native evidence](docs/PEER.md#coordination-and-verification-scope)
+and [hosted checks](docs/CI.md) at their recorded revisions. These observations
+do not establish fresh-account onboarding or broader platform support.
+The commands below use the current published `multithread` entry point. See
+[compatibility](docs/SETUP.md#compatibility) for older releases and the retained
+`relay` command from the former Agent Relay name.
 
 [MIT licensed](LICENSE), copyright (c) 2026 David Jones. Created by David Jones
 with AI assistance: Codex contributed implementation, testing and release work;
@@ -71,10 +58,9 @@ Provider sign-ins, settings and permissions stay unchanged.
 
 Or give your coding agent the [setup prompt](docs/SETUP.md#ask-your-coding-agent).
 It covers installation, enrollment and launch preparation without requiring a
-Multithread source checkout. Then use the copyable
-[first-collaboration prompt](docs/PEER.md#first-collaboration) to request and assess
-one scoped native review. The [setup guide](docs/SETUP.md) also covers pinned
-versions, partial setup and updates.
+Multithread source checkout. Continue below with native trust review and one
+collaboration. The [setup guide](docs/SETUP.md) also covers pinned versions,
+partial setup and updates.
 
 Check readiness again at any time:
 
@@ -88,31 +74,35 @@ unchecked until observed in a native session.
 
 ## Collaborate
 
-A thread is a separately scoped agent workstream; the main thread carries the
-continuing objective. You might ask an agent to “multithread this investigation”
-or “use up to three additional threads.” These are plain-language instructions
-about intent and capacity, with a ceiling rather than a quota. They are not CLI
-commands or a built-in scheduler; execution depends on available tools, supported
-providers and authorized use.
-
-Follow [Call another native provider and continue your task](docs/PEER.md) for
-task scope, a [first collaboration](docs/PEER.md#first-collaboration), results and
-exact-session follow-up.
-Calls use the provider's normal environment and permissions. Existing
-subscription sign-in can be used; provider configuration determines the billing
-path.
-
-To start an interactive Codex or Claude session with Multithread hooks, use the exact
-launch command printed by setup, or:
+First, complete any required [native sign-in and trust review](docs/SETUP.md#review-native-trust)
+through the provider's normal interface. To start an interactive Codex or Claude
+session with Multithread hooks, use the exact launch command printed by setup, or:
 
 ```sh
 ~/.local/bin/multithread launch codex --repo "$PWD"
 ```
 
 Use `claude` for the other provider. Review the invocation and type `launch`;
-adding `--json` prepares the plan without starting a session. A peer call's
-`--json` **does execute the call**; use its `--dry-run` to inspect first.
-Provider usage must be authorized before calling a peer.
+adding `--json` prepares the plan without starting a session.
+
+Then give your agent the copyable [first-collaboration prompt](docs/PEER.md#first-collaboration).
+It authorizes one scoped, read-only native review and asks the caller to assess
+the returned findings. Calls use normal provider permissions and existing access;
+provider configuration determines the billing path. A peer call's `--json`
+**does execute the call**; use its `--dry-run` to inspect first.
+
+Read the [result and any unresolved work](docs/PEER.md#read-the-result-before-continuing)
+before continuing. If another call is warranted and authorized, use the
+[exact returned native session](docs/PEER.md#follow-up-in-the-same-native-session)
+for a deliberate follow-up in the same checkout. A returned answer alone does
+not establish a completed review.
+
+A thread is a separately scoped agent workstream; the main thread carries the
+continuing objective. You might ask an agent to “multithread this investigation”
+or “use up to three additional threads.” These are plain-language instructions
+about intent and capacity, with a ceiling rather than a quota. They are not CLI
+commands or a built-in scheduler; execution depends on available tools, supported
+providers and authorized use.
 
 The [manual two-worktree walkthrough](docs/PROVIDERS.md#try-a-review-across-two-worktrees)
 remains available for separate sessions with manual wakes and explicit Git work.

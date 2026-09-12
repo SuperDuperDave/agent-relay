@@ -7,11 +7,9 @@ and bounded native provider work have separate evidence.
 the [selected release](https://github.com/SuperDuperDave/agent-relay/releases) for
 package and onboarding results.
 
-The preferred command is `multithread` from v0.4; `relay` remains compatible.
-Both names share one installation and ledger. Existing v0.3 installations use
-`relay` until updated. Release filenames, repository URLs and internal storage
-names remain unchanged. The [project page](https://mainthread.ai/work/relay/)
-introduces Multithread; historical evidence below retains its recorded names.
+Use [setup](SETUP.md) for the current installation and first collaboration path.
+[Compatibility notes](SETUP.md#compatibility) cover older releases and the retained
+`relay` command. Historical evidence below retains its recorded names and scope.
 
 ## Exercised profile
 
@@ -60,6 +58,11 @@ They include native artifacts from interrupted calls and do not establish
 installed-native v0.3 support. The earlier v0.2.0 release retains its
 separate installed Claude call/return and exact-session resume evidence.
 
+An ordinary installed v0.4.0 development review with Claude Code 2.1.269 also
+returned a review artifact, acknowledged its exact handoff and consumed a live
+input. Its [scope and measurements](PEER.md#coordination-and-verification-scope)
+do not establish native v0.4.1 execution or independent onboarding.
+
 ## Diagnose without changing live configuration
 
 Start with `~/.local/bin/multithread setup --check --repo /absolute/checkout` for a
@@ -68,6 +71,11 @@ read-only runtime/repository check and available provider launch plans. Add
 hook delivery and tool execution remain separately unobserved. Use
 `~/.local/bin/multithread update --check` for an explicit online release check;
 network failure means unavailable information, not an up-to-date installation.
+
+When runtime and repository checks pass, continue with any required
+[native trust review](SETUP.md#review-native-trust) and a
+[first collaboration](PEER.md#first-collaboration). Repeating installation does
+not establish provider sign-in, hook delivery or a completed review.
 
 For a first look, run the [no-account demo](DEMO.md) on the supported profile.
 The [strict suite](CI.md) checks the full local acceptance contract. Both use

@@ -417,7 +417,7 @@ def run(process, task: bytes, repo: str, resume: str | None, directory: Path,
             selector.register(process.stdout, selectors.EVENT_READ, "stdout")
             writing = False
             driver.request("initialize", {"clientInfo": {"name": "multithread", "title": "Multithread",
-                                                         "version": "0.4.0"}})
+                                                         "version": "0.4.1"}})
             while not observation.eof:
                 driver.poll_control()
                 if driver.outgoing and not writing:
