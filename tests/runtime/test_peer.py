@@ -27,7 +27,7 @@ class PeerTests(unittest.TestCase):
         self.base = Path(temporary.name)
         self.repo = self.base / "checkout 雪 ;$(touch injected)"
         self.repo.mkdir()
-        self.relay, self.provider = self.base / "relay entry", self.base / "provider entry"
+        self.relay, self.provider = self.base / "multithread", self.base / "provider entry"
         self.task = self.base / "task.txt"
         self.task.write_text("Review the scoped change.\n", encoding="utf-8")
         self.receipt, self.calls = self.base / "receipt.json", self.base / "calls.txt"
@@ -72,10 +72,10 @@ class PeerTests(unittest.TestCase):
         path.write_text(f"#!{sys.executable}\n" + source, encoding="utf-8")
         path.chmod(0o700)
 
-    def invoke(self, *extra, stdin=None, output=None):
+    def invoke(self, *extra, stdin=None, output=None, launcher_flag="--multithread"):
         self.count += 1
         directory = output or self.base / f"evidence-{self.count}"
-        arguments = ["claude", "--repo", str(self.repo), "--relay", str(self.relay),
+        arguments = ["claude", "--repo", str(self.repo), launcher_flag, str(self.relay),
                      "--provider", str(self.provider), "--task-file", "-" if stdin is not None else str(self.task),
                      "--output-dir", str(directory), "--json", *extra]
         stdout, stderr = io.StringIO(), io.StringIO()
@@ -100,7 +100,8 @@ class PeerTests(unittest.TestCase):
                           "--permission-prompts", "none", "--session-id",
                           result["session_id"]], receipt["argv"])
         self.assertEqual([str(self.relay), "--repo", str(self.repo), "--json", "provider-config",
-                          "--client", "claude"], json.loads((self.base / "relay-argv.json").read_text()))
+                          "--client", "claude", "--launcher-name", "multithread"],
+                         json.loads((self.base / "relay-argv.json").read_text()))
         self.assertFalse((self.repo / "injected").exists())
         self.assertFalse(result["needs_attention"])
         self.assertEqual("not_checked", result["workflow_completion"])
@@ -130,6 +131,15 @@ class PeerTests(unittest.TestCase):
     def test_dry_run_has_no_provider_or_evidence_writes(self):
         evidence = self.base / "dry-evidence"
         code, result, _ = self.invoke("--dry-run", output=evidence)
+        self.assertEqual(0, code)
+        self.assertEqual("call_prepared", result["state"])
+        self.assertFalse(result["provider_started"])
+        self.assertFalse(self.calls.exists())
+        self.assertFalse(evidence.exists())
+
+    def test_legacy_launcher_flag_still_prepares_without_provider_or_evidence_writes(self):
+        evidence = self.base / "legacy-dry-evidence"
+        code, result, _ = self.invoke("--dry-run", output=evidence, launcher_flag="--relay")
         self.assertEqual(0, code)
         self.assertEqual("call_prepared", result["state"])
         self.assertFalse(result["provider_started"])
@@ -186,7 +196,7 @@ class PeerTests(unittest.TestCase):
                 wrapper = subprocess.Popen(
                     [sys.executable, "-I", "-S", "-B", "-c", wrapper_entry,
                      str(ROOT / "examples" / "call_peer.py"),
-                     "claude", "--repo", str(self.repo), "--relay", str(self.relay),
+                     "claude", "--repo", str(self.repo), "--multithread", str(self.relay),
                      "--provider", str(self.provider), "--task-file", str(self.task),
                      "--output-dir", str(evidence), "--timeout", "15", "--json"],
                     cwd=ROOT, env=self.environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

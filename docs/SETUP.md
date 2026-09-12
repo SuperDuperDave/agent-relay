@@ -2,19 +2,19 @@
 
 Install the **selected published preview**, enroll your Git repository and prepare native
 Codex/Claude collaboration from one entry point. The package includes setup,
-interactive launch, native peer calls and updates; no Relay source checkout is
+interactive launch, native peer calls and updates; no Multithread source checkout is
 needed for these commands.
 
-This guide accompanies the **v0.3 source preview**, which adds Codex peer calls
-and live input. Check the selected release's version and package results before
-installation: v0.2.0 supports Claude call/return and exact-session resume, but
-lacks those v0.3 additions. To use the new helper with an older installed runtime,
-use the [peer source entry](PEER.md#use-the-source-entry) or build a
-[reviewed local bundle](engineering/INSTALLATION.md#build-a-local-preview-bundle).
+This guide accompanies the **v0.4 preview**, which installs the preferred
+`multithread` command. The published v0.3.0 release already supports both native
+providers, exact-session resume and live input through `relay`. Check the
+selected release's version and package results before installation. Existing
+v0.3 installations can use `~/.local/bin/relay update` to review the naming update.
 
-Multithread was previously called **Agent Relay**. The `relay` command, release
-filenames and repository URLs remain unchanged, including in the setup prompt
-below. See the [project page](https://mainthread.ai/work/relay/) for an introduction.
+Multithread was previously called **Agent Relay**. The `relay` compatibility
+command, release filenames, repository URLs and internal `.relay` storage remain
+unchanged. Both command names use one installation and the same ledger. See the
+[project page](https://mainthread.ai/work/relay/) for an introduction.
 
 Use an ordinary x86-64 Linux account with Python 3.12 at `/usr/bin/python3`, Git
 at `/usr/bin/git`, Landlock ABI3+, procfs and supported filesystem birth times.
@@ -22,9 +22,9 @@ WSL2 with ext4 is the exercised profile. Native Windows, macOS and ARM Linux
 are outside that profile. Bubblewrap and rootless/nested namespaces are extra
 demo/test prerequisites. See [support](SUPPORT.md#exercised-profile).
 
-Relay uses your existing provider installations and sign-ins. Missing providers
-do not prevent Relay installation or repository enrollment. Provider/OS setup
-uses their normal interfaces and remains separate from Relay setup.
+Multithread uses your existing provider installations and sign-ins. Missing providers
+do not prevent Multithread installation or repository enrollment. Provider/OS setup
+uses their normal interfaces and remains separate from Multithread setup.
 
 ## Install and enroll
 
@@ -33,11 +33,11 @@ Start in the Git repository you intend to use. Review the
 before running its installer:
 
 ```sh
-relay_setup=$(mktemp) &&
+multithread_setup=$(mktemp) &&
   curl -fsSL --proto '=https' \
     https://github.com/SuperDuperDave/agent-relay/releases/latest/download/install.py \
-    -o "$relay_setup" &&
-  /usr/bin/python3 -I -S -B "$relay_setup" --enroll-repo "$PWD"
+    -o "$multithread_setup" &&
+  /usr/bin/python3 -I -S -B "$multithread_setup" --enroll-repo "$PWD"
 ```
 
 The downloaded installer contains the exact release version, source commit,
@@ -55,12 +55,13 @@ uncertain state refuses instead of replacing unknown files. Installation and
 enrollment preserve existing claims and pending work.
 
 Use the exact launcher path printed by the installer, normally
-`~/.local/bin/relay`. Account paths come from the OS account database. Relay does
+`~/.local/bin/multithread` with v0.4 or later. Account paths come from the OS
+account database. Multithread does
 not edit shell `PATH`, provider settings, permissions or sign-ins, and setup does
 not execute a provider or start a model session.
 
 For a fixed published version, replace `releases/latest/download/install.py` in
-the command with `releases/download/v0.3.0/install.py` after confirming that tag
+the command with `releases/download/v0.4.0/install.py` after confirming that tag
 lists the installer asset. To inspect its embedded selection
 without installing or enrolling, add `--check --json`. To install code without
 enrolling any project, omit `--enroll-repo`. The lower-level
@@ -73,7 +74,7 @@ Paste this into a functioning coding agent already working in your chosen Git
 repository:
 
 ```text
-Set up the current published Agent Relay release for this Git repository using
+Set up the current published Multithread release for this Git repository using
 https://github.com/SuperDuperDave/agent-relay/blob/main/docs/SETUP.md.
 Confirm the Git root/common directory and compatibility first. Review the
 publisher's versioned install.py release asset and its embedded version, source
@@ -83,9 +84,10 @@ Codex and Claude installations. Use --yes with the reviewed installer selection
 and --enroll-repo with this repository's absolute path.
 Preserve existing work, ledger state, provider settings, sign-ins and permissions.
 Do not replace an unknown command, provision providers, repair the OS, change
-global settings or launch model sessions. No Relay source checkout is needed.
+global settings or launch model sessions. No Multithread source checkout is needed.
 Finish with verified runtime/repository readiness, each provider's preparation
-state, exact next launch commands and any remaining native action.
+state, exact next launch commands and any remaining native action. Then point
+me to the first-collaboration prompt in docs/PEER.md#first-collaboration.
 ```
 
 The agent should continue through the authorized steps it can verify. If the
@@ -111,7 +113,7 @@ test handoff, acknowledgement or claim release.
 From the chosen checkout:
 
 ```sh
-~/.local/bin/relay setup --repo "$PWD" --check
+~/.local/bin/multithread setup --repo "$PWD" --check
 ```
 
 This read-only check verifies runtime identity, repository integrity and ledger
@@ -122,13 +124,13 @@ Setup does not run provider executables, including version checks.
 To explicitly enroll a new chosen repository, then run the same checks:
 
 ```sh
-~/.local/bin/relay setup --repo "$PWD" --apply
+~/.local/bin/multithread setup --repo "$PWD" --apply
 ```
 
 Select reviewed provider paths explicitly when necessary:
 
 ```sh
-~/.local/bin/relay setup --repo "$PWD" --check \
+~/.local/bin/multithread setup --repo "$PWD" --check \
   --codex /absolute/path/to/codex --claude /absolute/path/to/claude
 ```
 
@@ -137,10 +139,10 @@ Select reviewed provider paths explicitly when necessary:
 | Runtime verified | Healthy installed status and exact release/activation identity | Any installation refusal needs its specific inspection or recovery action. |
 | Repository verified | Enrollment, exact Git identity, healthy integrity check and matching ledger status | Preserve state on refusal or unavailable observation; do not delete or forge enrollment markers. |
 | Provider prepared | Executable path and matching invocation plan | Provider version, sign-in, native trust and tool capability are not checked. A missing provider can be installed or located through its normal interface. |
-| Hook/context delivery | Not checked by setup | Observe the Relay context in an authorized native session. A generated plan or zero hook exit does not prove delivery. |
+| Hook/context delivery | Not checked by setup | Observe the Multithread context in an authorized native session. A generated plan or zero hook exit does not prove delivery. |
 | Provider tools | Not checked by setup | Observe an authorized native tool action. Tool execution alone does not establish a completed collaboration workflow. |
 
-“Relay is ready for this repository” means the runtime and repository passed.
+“Multithread is ready for this repository” means the runtime and repository passed.
 Providers may still be missing or need attention. A successful installation
 followed by incomplete enrollment remains a successful code installation with
 repository setup unresolved. After a timeout or uncertain enrollment result,
@@ -149,21 +151,20 @@ diagnostics private and sanitize anything shared.
 
 ## Start collaborating
 
-The [native peer guide](PEER.md) leads through a scoped task whose answer
-returns automatically to the calling agent, including exact-session follow-up.
-The v0.2.0 command calls Claude; v0.3 also calls Codex and accepts input while its
-owned peer is running. Use the guide's source entry for those additions with an
-existing v0.2.0 installation.
+Use the copyable [first-collaboration prompt](PEER.md#first-collaboration) after
+preparation. It authorizes one read-only native review, asks the calling agent to
+assess the returned findings, and keeps unresolved work visible. The
+[native peer guide](PEER.md) also covers exact-session follow-up and live input.
 Calls use the existing provider's normal environment and permission mode.
 Subscription sign-in can be used; API keys or other provider configuration can
 change the billing path. Check that through the provider's normal interface.
-Relay does not certify account billing.
+Multithread does not certify account billing.
 
-To start an interactive session with invocation-only Relay hooks, run the exact
+To start an interactive session with invocation-only Multithread hooks, run the exact
 command setup printed. With the usual launcher and provider on `PATH`:
 
 ```sh
-~/.local/bin/relay launch codex --repo "$PWD"
+~/.local/bin/multithread launch codex --repo "$PWD"
 ```
 
 Use `claude` for Claude Code. Review the displayed provider path, repository and
@@ -174,7 +175,7 @@ existing hooks for duplicates or conflicting overrides.
 
 An agent authorized only for setup should report these commands for the user.
 Provider launches and peer calls require authorization for that use. Peer calls
-have no extra interactive confirmation: `relay peer claude --json` executes the
+have no extra interactive confirmation: `multithread peer claude --json` executes the
 call; add `--dry-run` to inspect without execution.
 
 The [two-worktree review walkthrough](PROVIDERS.md#try-a-review-across-two-worktrees)
@@ -185,7 +186,7 @@ namespace requirements; it does not establish provider readiness.
 ## Update an existing installation
 
 ```sh
-~/.local/bin/relay update
+~/.local/bin/multithread update
 ```
 
 The updater reads the latest published metadata and asks you to approve that
@@ -196,10 +197,10 @@ does not enroll another repository unless you explicitly add `--enroll-repo`.
 For an existing v0.1.0 installation without `relay update`, use the installer
 above to review and apply the new selection.
 
-For read-only inspection, use `relay update --check` or:
+For read-only inspection, use `multithread update --check` or:
 
 ```sh
-~/.local/bin/relay update --json
+~/.local/bin/multithread update --json
 ```
 
 This checks metadata and current installation; it does not download and verify
@@ -208,7 +209,7 @@ the archive or apply an update. When an update is available, the JSON includes
 observed activation with `--yes`. An agent should review that selection, then
 execute the exact argv when updating is authorized. Do not pass JSON through
 shell `eval`. Applying an unattended update requires those exact selection
-fields; `--yes` alone is insufficient. Use `--version 0.3.0` to select that fixed
+fields; `--yes` alone is insufficient. Use `--version 0.4.0` to select that fixed
 published version for inspection or interactive application.
 
 Updates run only when requested; there is no background updater. Running

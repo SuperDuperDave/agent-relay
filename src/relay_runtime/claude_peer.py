@@ -3,7 +3,7 @@
 The caller owns the process, its argv and its cleanup. This module owns only
 its JSONL frames, private stdout observation and native result interpretation.
 A native echo means the input was received, never that it was answered, and a
-native consumption observation never substitutes for a durable Relay
+native consumption observation never substitutes for a durable Multithread
 acknowledgement or for workflow completion.
 """
 
@@ -432,13 +432,13 @@ class _Driver:
             message = "Submitted native input has no observed result covering it; its outcome is unknown. Do not resend it automatically."
         elif self.failed_related:
             state = "provider_error"
-            message = "A native result reported an error; earlier results and text are retained. Inspect retained output and Relay evidence."
+            message = "A native result reported an error; earlier results and text are retained. Inspect retained output and Multithread evidence."
         elif self.answer is None:
             state = "uncertain"
             message = "No native result carried final answer text; inspect retained output before continuing."
         else:
             state = "returned"
-            message = "Assess the answer and durable Relay evidence; a returned turn is not workflow completion."
+            message = "Assess the answer and durable Multithread evidence; a returned turn is not workflow completion."
         if unknown and state in ("returned", "provider_error"):
             message += " Some input carried no native consumption observation; treat that attribution as unknown."
         stopped = last is not None and (last["terminal_reason"] not in (None, "completed", "end_turn")

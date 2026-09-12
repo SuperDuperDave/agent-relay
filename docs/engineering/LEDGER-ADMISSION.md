@@ -1,8 +1,10 @@
 # Installed ledger admission - verified command boundaries
 
-This records the enrolled-command integration checkpoint. A newer public
-installation preview is documented in INSTALLATION.md; a real provider
-demonstration is still open. Internal tests install the closed runtime outside
+This records a historical enrolled-command integration checkpoint from
+Multithread's Agent Relay development. A newer public installation preview is
+documented in [INSTALLATION.md](INSTALLATION.md); the provider demonstration was
+still open at this checkpoint. See the [current peer guide](../PEER.md) for later
+capabilities and separately observed evidence. Internal tests install the closed runtime outside
 the fixture Git repository; the newer public-profile test also builds and installs
 through public commands and executes the real launcher with source and bundle
 absent, using OS-account defaults and a separately enrolled disposable workspace.

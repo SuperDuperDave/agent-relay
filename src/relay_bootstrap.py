@@ -484,7 +484,7 @@ class VerifiedRuntime:
             raise BootstrapError("runtime execution requires the current closed module set")
         roots = ("relay_core", "relay_runtime")
         if any(name == root or name.startswith(root + ".") for name in sys.modules for root in roots):
-            raise BootstrapError("a Relay module was loaded before generation verification")
+            raise BootstrapError("a Multithread module was loaded before generation verification")
         expected_finders = [importlib.machinery.BuiltinImporter, importlib.machinery.FrozenImporter,
                             importlib.machinery.PathFinder]
         if sys.meta_path != expected_finders:
@@ -506,7 +506,7 @@ class _RetainedFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
     def find_spec(self, fullname, path=None, target=None):
         if fullname not in PAYLOAD_MODULES:
             if any(fullname == root or fullname.startswith(root + ".") for root in ("relay_core", "relay_runtime")):
-                raise ModuleNotFoundError("module is outside the verified Relay closure")
+                raise ModuleNotFoundError("module is outside the verified Multithread closure")
             return None
         package = PAYLOAD_MODULES[fullname].endswith("/__init__.py")
         spec = importlib.machinery.ModuleSpec(fullname, self, origin=str(self.runtime.origin / PAYLOAD_MODULES[fullname]), is_package=package)
@@ -753,6 +753,8 @@ _UNINSTALL_LIMIT = 2048
 def _uninstall_kind(area, relative):
     parts = relative.split("/")
     if area == "bin":
+        if relative == "multithread":
+            return "alias"
         if relative == "relay" or re.fullmatch(r"\.relay-(switch|disabled)-[0-9a-f]{32}", relative):
             return "selector"
     elif area == "installation":
@@ -784,7 +786,7 @@ def _uninstall_object(parent, name, kind):
         _directory_info(info, private=True)
         if info.st_mode & 0o300 != 0o300:
             raise BootstrapError("uninstall directory is not owner-writable/searchable")
-    elif kind == "selector":
+    elif kind in ("selector", "alias"):
         if not stat.S_ISLNK(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
             raise BootstrapError("uninstall selector is not an owned single-link symlink")
         value.update(target=os.readlink(name, dir_fd=parent), mtime_ns=info.st_mtime_ns)
@@ -830,7 +832,7 @@ def _uninstall_records(directory):
                 raise BootstrapError("duplicate uninstall receipt target")
             seen.add(key)
             info = entry["object"]
-            fields = {"identity"} | ({"target", "mtime_ns"} if entry["kind"] == "selector"
+            fields = {"identity"} | ({"target", "mtime_ns"} if entry["kind"] in ("selector", "alias")
                                     else {"sha256", "size", "mtime_ns"} if entry["kind"] == "file" else set())
             if (set(info) != fields or type(info["identity"]) is not list
                     or len(info["identity"]) != 4
@@ -843,7 +845,7 @@ def _uninstall_records(directory):
                 raise BootstrapError("invalid uninstall content identity")
             if entry["kind"] != "directory" and type(info["mtime_ns"]) is not int:
                 raise BootstrapError("invalid uninstall object timestamp")
-            if entry["kind"] == "selector" and not isinstance(info["target"], str):
+            if entry["kind"] in ("selector", "alias") and not isinstance(info["target"], str):
                 raise BootstrapError("invalid uninstall selector target")
         done = "uninstalled-" + match[1] + ".json"
         completed = done in names
@@ -896,7 +898,7 @@ def _uninstall_inventory(distribution, directory, records, pending=None):
     if bin_directory:
         with bin_directory:
             for name in _bounded_names(bin_directory.fd):
-                if (name == "relay" or name.startswith((".relay-switch-", ".relay-disabled-", ".relay-uninstall-"))):
+                if (name in ("relay", "multithread") or name.startswith((".relay-switch-", ".relay-disabled-", ".relay-uninstall-"))):
                     capture("bin", bin_directory.fd, name, name)
             bin_directory.recheck()
     directory.recheck()
@@ -929,6 +931,9 @@ def _uninstall_verify_complete(distribution, entries):
             body = expected.get(entry["path"])
             if body is None or entry["object"]["sha256"] != hashlib.sha256(body).hexdigest():
                 raise BootstrapError("uninstall code changed after release verification")
+        elif entry["kind"] == "alias":
+            if entry["object"]["target"] != str(distribution.bin_directory / "relay"):
+                raise BootstrapError("unverified multithread command; preserved")
         elif entry["kind"] == "selector":
             target = Path(entry["object"]["target"])
             if (str(target) != entry["object"]["target"] or target.name != "relay"
@@ -958,6 +963,45 @@ class Distribution:
             raise BootstrapError("invalid installed release identity")
         return read_release(self.root / "releases" / digest, digest, private=True)
 
+    def _command_alias(self):
+        """Inspect the exact owned entry without following or executing its target.
+
+        relay remains protocol one's single activation selector. The preferred
+        name follows it, so upgrades cannot select two different runtimes.
+        """
+        try:
+            directory = _Directory(self.bin_directory, private_leaf=False)
+        except FileNotFoundError:
+            return None
+        with directory:
+            try:
+                info = os.stat("multithread", dir_fd=directory.fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return None
+            if (not stat.S_ISLNK(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_nlink != 1):
+                raise BootstrapError("existing multithread command is not an owned Multithread entry; preserved")
+            target = os.readlink("multithread", dir_fd=directory.fd)
+            if target != str(self.bin_directory / "relay"):
+                raise BootstrapError("existing multithread symlink is not the recognized command entry; preserved")
+            after = os.stat("multithread", dir_fd=directory.fd, follow_symlinks=False)
+            if (any(getattr(info, field) != getattr(after, field) for field in
+                    ("st_dev", "st_ino", "st_mode", "st_uid", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns"))
+                    or os.readlink("multithread", dir_fd=directory.fd) != target):
+                raise BootstrapError("multithread command changed during inspection")
+            directory.recheck()
+            return {"path": str(self.bin_directory / "multithread"), "target": target,
+                    "device": info.st_dev, "inode": info.st_ino}
+
+    def _ensure_command_alias(self, directory):
+        if self._command_alias() is None:
+            # No replacement: a concurrently created foreign entry is preserved.
+            os.symlink(str(self.bin_directory / "relay"), "multithread", dir_fd=directory.fd)
+            os.fsync(directory.fd)
+            _checkpoint("command-alias-published")
+        if self._command_alias() is None:
+            raise BootstrapError("multithread command publication is unavailable; inspect before retrying")
+
     def _raw_selector(self):
         """Recognize only our exact selector shape without executing/requiring code."""
         try:
@@ -970,7 +1014,7 @@ class Distribution:
             except FileNotFoundError:
                 return None
             if not stat.S_ISLNK(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
-                raise BootstrapError("existing relay command is not an owned Relay launcher; preserved")
+                raise BootstrapError("existing relay command is not an owned Multithread launcher; preserved")
             target = os.readlink("relay", dir_fd=directory.fd)
             path = Path(target)
             if (not path.is_absolute() or str(path) != target or path.name != "relay"
@@ -1026,8 +1070,11 @@ class Distribution:
 
     def status(self):
         active = self._inspect()
+        alias = self._command_alias()
         return {"installed": active is not None, "activation": active,
-                "launcher": str(self.bin_directory / "relay"),
+                "launcher": str(self.bin_directory / "multithread"),
+                "compatibility_launcher": str(self.bin_directory / "relay"),
+                "preferred_command_available": alias is not None and active is not None,
                 "enrollment_changed": False, "hooks_changed": False}
 
     def inspect(self):
@@ -1035,12 +1082,18 @@ class Distribution:
         result = {"state": "absent", "selector": None, "activation": None,
                   "releases": [], "launches": [], "retained_selectors": [],
                   "issues": [], "recovery_options": [],
-                  "launcher": str(self.bin_directory / "relay"),
+                  "launcher": str(self.bin_directory / "multithread"),
+                  "compatibility_launcher": str(self.bin_directory / "relay"),
+                  "command_alias": None,
                   "installation": str(self.root), "writes": [],
                   "enrollment_changed": False, "hooks_changed": False}
         def issue(scope, exc):
             result["issues"].append({"scope": scope, "code": "unverified",
                                      "detail": str(exc)[:512]})
+        try:
+            result["command_alias"] = self._command_alias()
+        except (OSError, BootstrapError) as exc:
+            issue("command-alias", exc)
         try:
             result["selector"] = self._raw_selector()
             if result["selector"] is not None:
@@ -1126,6 +1179,8 @@ class Distribution:
                     issue("inventory", exc)
         if result["activation"] is not None:
             result["state"] = "active"
+            if result["command_alias"] is None:
+                issue("command-alias", BootstrapError("preferred multithread entry is unavailable; use the reviewed release installer to restore it"))
         if result["issues"]:
             result["state"] = "degraded"
         # These are choices, not automatic retries or an authorization receipt.
@@ -1152,7 +1207,8 @@ class Distribution:
         """Read-only exact installed-code plan, including resumable remaining objects."""
         result = {"scope": "installed-code", "state": "blocked", "can_uninstall": False,
                   "uninstalled": False, "installation": str(self.root),
-                  "launcher": str(self.bin_directory / "relay"), "targets": [], "observed": [],
+                  "launcher": str(self.bin_directory / "multithread"),
+                  "compatibility_launcher": str(self.bin_directory / "relay"), "targets": [], "observed": [],
                   "pending_receipt": None, "root_identity": None, "retained_metadata": [],
                   "issues": [], "writes": [], "enrollment_changed": False, "hooks_changed": False,
                   "stops_running_commands": False, "artifact_purge_complete": False}
@@ -1162,7 +1218,7 @@ class Distribution:
             except FileNotFoundError:
                 root = None
             if root is None:
-                if self._raw_selector() is not None:
+                if self._raw_selector() is not None or self._command_alias() is not None:
                     raise BootstrapError("installation root is missing; selector is preserved")
                 try:
                     with _Directory(self.bin_directory, private_leaf=False) as folder:
@@ -1204,7 +1260,7 @@ class Distribution:
                     else:
                         _uninstall_verify_complete(self, observed)
                         targets = sorted(observed, key=lambda row: (
-                            0 if row["kind"] == "selector" else 1 if row["kind"] == "file" else 2,
+                            0 if row["kind"] in ("selector", "alias") else 1 if row["kind"] == "file" else 2,
                             -row["path"].count("/"), row["area"], row["path"]))
                     result.update(state="in_progress" if pending else "ready" if targets else "complete",
                                   can_uninstall=True, uninstalled=not targets and not pending,
@@ -1322,6 +1378,8 @@ class Distribution:
         return {"can_disable": selector is not None and not issues, "issues": issues,
                 "expected_selector": selector["observation"] if selector else None,
                 "launcher": str(self.bin_directory / "relay"),
+                "preferred_launcher": str(self.bin_directory / "multithread"),
+                "preferred_alias_removed": False,
                 "retained_selector_pattern": str(self.bin_directory / ".relay-disabled-<id>"),
                 "retains": [str(self.root)], "removes_release_files": False,
                 "enrollment_changed": False, "hooks_changed": False,
@@ -1369,6 +1427,7 @@ class Distribution:
     def recover(self, digest, *, expected_selector):
         """Explicitly replace a recognized damaged launcher; never repair its code."""
         release = self.release(digest)
+        self._command_alias()
         current = self._require_selector(expected_selector)
         with _Directory(self.root) as root, _lock(root) as verify_lock:
             return self._activate(root, verify_lock, release, current["activation_id"],
@@ -1404,6 +1463,7 @@ class Distribution:
 
     def recovery_plan(self, source, approved_digest):
         release = read_release(source, approved_digest)
+        self._command_alias()
         current = self._raw_selector()
         if current is None:
             raise BootstrapError("recovery requires a recognized selector; inspect before choosing normal install")
@@ -1416,8 +1476,9 @@ class Distribution:
             "bootstrap_sha256": release.bootstrap_sha,
             "runtime_sha256": hashlib.sha256(release.runtime_manifest).hexdigest(),
             "expected_selector": current["observation"], "release_already_installed": present,
-            "launcher": str(self.bin_directory / "relay"),
-            "writes": [str(self.root), str(self.bin_directory / "relay")],
+            "launcher": str(self.bin_directory / "multithread"),
+            "compatibility_launcher": str(self.bin_directory / "relay"),
+            "writes": [str(self.root), str(self.bin_directory / "relay"), str(self.bin_directory / "multithread")],
             "retained_selector_pattern": str(self.bin_directory / ".relay-switch-<activation-id>"),
             "repairs_damaged_files": False, "enrollment_changed": False,
             "hooks_changed": False, "network_access": False, "stops_running_commands": False,
@@ -1426,6 +1487,7 @@ class Distribution:
     def recover_install(self, source, approved_digest, *, expected_selector):
         """Stage an approved external pair, preserving all damaged install objects."""
         release = read_release(source, approved_digest)  # capture before destination writes
+        self._command_alias()
         current = self._require_selector(expected_selector)
         with _Directory(self.root) as root:
             self._recovery_destination(root, release)
@@ -1441,6 +1503,7 @@ class Distribution:
 
     def plan(self, source, approved_digest):
         release = read_release(source, approved_digest)
+        self._command_alias()
         current = self._inspect()
         # A corrupt/partial destination is never an empty installation.
         try:
@@ -1470,14 +1533,16 @@ class Distribution:
             "bootstrap_sha256": release.bootstrap_sha,
             "runtime_sha256": hashlib.sha256(release.runtime_manifest).hexdigest(),
             "expected_activation": current["activation_id"] if current else None,
-            "launcher": str(self.bin_directory / "relay"),
-            "writes": [str(self.root), str(self.bin_directory / "relay")],
+            "launcher": str(self.bin_directory / "multithread"),
+            "compatibility_launcher": str(self.bin_directory / "relay"),
+            "writes": [str(self.root), str(self.bin_directory / "relay"), str(self.bin_directory / "multithread")],
             "retained_selector_pattern": str(self.bin_directory / ".relay-switch-<activation-id>") if current else None,
             "enrolls_projects": False, "changes_hooks": False, "network_access": False,
         }
 
     def install(self, source, approved_digest, *, expected_activation):
         release = read_release(source, approved_digest)  # before destination writes
+        self._command_alias()  # refuse a foreign preferred entry before staging
         self._check_expected(self._inspect(), expected_activation)
         with _Directory(self.root, create=True) as root, _lock(root) as verify_lock:
             self._check_expected(self._inspect(), expected_activation)
@@ -1509,6 +1574,7 @@ class Distribution:
             raise BootstrapError("launcher activation changed; stale installation or rollback refused")
 
     def activate(self, digest, *, expected_activation):
+        self._command_alias()
         release = self.release(digest)
         self._check_expected(self._inspect(), expected_activation)
         with _Directory(self.root) as root, _lock(root) as verify_lock:
@@ -1519,6 +1585,7 @@ class Distribution:
             return (self._require_selector(recovery_selector) if recovery_selector is not None
                     else self._inspect())
         current = observe()
+        self._command_alias()
         self._check_expected(current, expected)
         launches = root.child(root.fd, "launches", create=True)
         identity = uuid.uuid4().hex
@@ -1569,12 +1636,17 @@ class Distribution:
                     raise BootstrapError("launcher exchange is uncertain; displaced object preserved as " + temporary)
                 # Retain the displaced selector. Check-then-unlink could
                 # delete a different object substituted after validation.
+            # Publish the verified selector before exposing its preferred alias.
+            # An interrupted first publication can be inspected through relay.
+            self._ensure_command_alias(bin_directory)
             _checkpoint("launcher-published")
             os.fsync(bin_directory.fd)
             verify_lock()
             verify_prepared()
             bin_directory.recheck()
             observed = self._inspect()
+            if self._command_alias() is None:
+                raise BootstrapError("preferred command disappeared during activation; inspect before retrying")
             if (observed is None or observed["activation_id"] != identity
                     or observed["release_id"] != release.digest or observed["target"] != target):
                 raise BootstrapError("launcher publication changed; inspect before retrying")
@@ -1586,7 +1658,7 @@ def run_installed(release_id, activation_id, argv):
     installation = Distribution.for_account()
     current = installation._inspect()
     if current is None or (current["release_id"], current["activation_id"]) != (release_id, activation_id):
-        raise BootstrapError("this launcher is no longer active; use the current relay command")
+        raise BootstrapError("this launcher is no longer active; use the current multithread command")
     release = installation.release(release_id)
     if globals().get("__relay_bootstrap_sha256__") != release.bootstrap_sha:
         raise BootstrapError("installed execution requires the retained verified launcher")
@@ -1596,12 +1668,12 @@ def run_installed(release_id, activation_id, argv):
                               installation.root / "releases" / release_id / "payload", release.bodies)
     runtime.install_importer()
     from relay_runtime.cli import main as dispatch
-    return dispatch(argv)
+    return dispatch(argv, command_alias_check=installation._command_alias)
 
 
 def main(argv=None):
     import argparse
-    parser = argparse.ArgumentParser(prog="relay runtime", description="Offline, explicit Relay release installation.")
+    parser = argparse.ArgumentParser(prog="multithread runtime", description="Offline, explicit Multithread release installation.")
     commands = parser.add_subparsers(dest="command", required=True)
     build = commands.add_parser("build-release", help="build an unapproved closed local bundle")
     build.add_argument("--output", required=True)
@@ -1672,7 +1744,7 @@ def main(argv=None):
             return 1
         return 0
     except (BootstrapError, OSError) as exc:
-        print("relay runtime: " + str(exc), file=sys.stderr)
+        print("multithread runtime: " + str(exc), file=sys.stderr)
         return 1
 
 

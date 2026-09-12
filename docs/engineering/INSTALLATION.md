@@ -1,16 +1,21 @@
 # Offline installation and recovery
 
-Relay is [MIT licensed](../../LICENSE). The public source is
+Multithread is [MIT licensed](../../LICENSE). The public source is
 [SuperDuperDave/agent-relay](https://github.com/SuperDuperDave/agent-relay). Choose the release-archive
 or source-build route below. [Hosted checks](../CI.md#hosted-result) and the
 [bounded native workflow](../PROVIDERS.md#bounded-native-workflow) have separate
 scope. Consult the [selected release](https://github.com/SuperDuperDave/agent-relay/releases) for final package
 and downloaded-package results.
 
-This guide accompanies the **v0.3 source preview**. Use the archive route only
+This guide accompanies the **v0.4 preview**. Use the archive route only
 after the selected tag lists its reviewed assets; the local build route selects
 the reviewed source checkout. Building or installing a bundle does not establish
 a published release or a native-provider workflow result.
+
+The published v0.3.0 release already includes Codex peer calls and live input
+through `relay`. v0.4 adds the preferred `multithread` command while preserving
+that compatibility entry point, internal storage names and release filenames.
+Use the selected installer's printed paths; do not rename an older launcher by hand.
 
 Use an ordinary x86-64 Linux/WSL account with Python 3.12 and Git. The installed
 worker also requires Landlock ABI3+, procfs and supported filesystem birth times.
@@ -39,28 +44,28 @@ edits PATH/shell configuration, enrolls a repository or enables provider hooks.
 
 ## Install from the release archive
 
-Use this route when the [v0.3.0 release](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.3.0) lists both
-`relay-0.3.0-linux-x86_64.tar.gz` and its `.sha256` file under Assets.
+Use this route when the [v0.4.0 release](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.4.0) lists both
+`relay-0.4.0-linux-x86_64.tar.gz` and its `.sha256` file under Assets.
 Source publication and green CI alone do not establish a downloaded-package
 check; read the release's package and onboarding results first.
 
 Download both files into a new empty directory. For example, with curl installed:
 
 ```sh
-mkdir relay-download
-cd relay-download
-curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.3.0/relay-0.3.0-linux-x86_64.tar.gz
-curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.3.0/relay-0.3.0-linux-x86_64.tar.gz.sha256
-sha256sum --check relay-0.3.0-linux-x86_64.tar.gz.sha256
-tar -tvzf relay-0.3.0-linux-x86_64.tar.gz
+mkdir multithread-download
+cd multithread-download
+curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.4.0/relay-0.4.0-linux-x86_64.tar.gz
+curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.4.0/relay-0.4.0-linux-x86_64.tar.gz.sha256
+sha256sum --check relay-0.4.0-linux-x86_64.tar.gz.sha256
+tar -tvzf relay-0.4.0-linux-x86_64.tar.gz
 ```
 
-Review the listed files under the single `relay-0.3.0/` root, then extract and
+Review the listed files under the single `relay-0.4.0/` root, then extract and
 check the individual file hashes:
 
 ```sh
-tar -xzf relay-0.3.0-linux-x86_64.tar.gz
-cd relay-0.3.0
+tar -xzf relay-0.4.0-linux-x86_64.tar.gz
+cd relay-0.4.0
 sha256sum --check SHA256SUMS
 ```
 
@@ -94,7 +99,7 @@ From a reviewed source checkout:
 
 ```sh
 /usr/bin/python3 -I -S -B src/relay_bootstrap.py build-release \
-  --output dist/relay-preview --version 0.3.0
+  --output dist/multithread-preview --version 0.4.0
 ```
 
 The destination must not already exist. The builder includes only bootstrap.py,
@@ -110,20 +115,20 @@ digest, not a literal value to paste.
 
 ```sh
 /usr/bin/python3 -I -S -B src/relay_bootstrap.py plan \
-  --release dist/relay-preview --approve-sha256 RELEASE_SHA256
+  --release dist/multithread-preview --approve-sha256 RELEASE_SHA256
 ```
 
 Plan validates the supplied bundle and current command ownership without
 creating installation state. It reports the bootstrap/runtime identities,
 exact expected activation, account installation path, launcher path, and any
-retained-selector pattern. Unknown existing relay commands are preserved and
+retained-selector pattern. Unknown existing multithread or relay commands are preserved and
 refused, not silently replaced.
 
 For the first installation, the plan's expected_activation is null:
 
 ```sh
 /usr/bin/python3 -I -S -B src/relay_bootstrap.py install \
-  --release dist/relay-preview --approve-sha256 RELEASE_SHA256 \
+  --release dist/multithread-preview --approve-sha256 RELEASE_SHA256 \
   --expected-activation none
 ```
 
@@ -131,16 +136,30 @@ For an upgrade, replace none with the exact current activation ID from a fresh
 plan. A stale ID refuses; do not work around that by deleting configuration.
 
 Account roots come from the OS account database, not HOME or XDG overrides.
-The normal layout is ~/.local/share/relay/installation for immutable releases
-and launch records, and ~/.local/bin/relay for the command selector. Existing
-safe bin permissions are preserved. The installer does not change PATH.
+The normal layout retains ~/.local/share/relay/installation for immutable releases
+and launch records. The preferred command is ~/.local/bin/multithread;
+~/.local/bin/relay remains a compatible entry point to that same installation.
+The installer owns `multithread` as an exact symlink to the absolute account
+`relay` path. `relay` remains the single atomically selected launcher: both names
+use the same activation, enrollment and ledger. The installer verifies the
+alias's ownership and exact target; foreign occupants are preserved and refused.
+Existing safe bin permissions are preserved. The installer does not change PATH.
+
+## Command compatibility
+
+Use `multithread` for new scripts and instructions. The `relay` entry remains
+supported in this release with no automatic expiry, removal or per-hook naming
+warnings. Saved hooks and scripts can continue using it. Removing that entry
+would require a future deliberate migration of those callers; this naming
+release does not retire it. Ordinary explicit code uninstall still removes the
+verified installed entries within its reviewed scope.
 
 ## Inspect the actual installed command
 
 Use the exact launcher path printed by plan/install. On the ordinary layout:
 
 ```sh
-~/.local/bin/relay runtime status
+~/.local/bin/multithread runtime status
 ```
 
 The shell wrapper invokes absolute /usr/bin/python3 with -I -S -B. It opens
@@ -155,14 +174,14 @@ with source and bundle absent. A modified bootstrap refuses before execution.
 
 ## Choose and initialize a repository
 
-After checking runtime status, choose an existing Git repository for Relay.
+After checking runtime status, choose an existing Git repository for Multithread.
 Replace the example path below with its absolute checkout path and use the
 installed launcher printed by plan/install:
 
 ```sh
-~/.local/bin/relay --repo /absolute/path/to/your/repository init
-~/.local/bin/relay --repo /absolute/path/to/your/repository status
-~/.local/bin/relay --repo /absolute/path/to/your/repository brief --agent codex
+~/.local/bin/multithread --repo /absolute/path/to/your/repository init
+~/.local/bin/multithread --repo /absolute/path/to/your/repository status
+~/.local/bin/multithread --repo /absolute/path/to/your/repository brief --agent codex
 ```
 
 `init` explicitly creates the repository ledger and account enrollment. A later
@@ -182,7 +201,7 @@ providers, grant their permissions or approve native hook trust.
 
 ## Upgrades and explicit rollback
 
-The installed `relay update` command reviews one public release and asks before
+The installed `multithread update` command reviews one public release and asks before
 running its incoming installer. `--check` / `--json` only observe; the JSON plan
 supplies an exact `apply_argv` for an already-authorized agent. There are no
 background checks or automatic activations. Network failure leaves availability
@@ -196,23 +215,26 @@ restart them. A future incompatible ledger/launcher change needs its own
 explicit migration or quiescence requirements; this updater does not promise
 arbitrary future compatibility.
 
-When upgrading an older installation to v0.3,
+When upgrading an older installation,
 use the **incoming reviewed bundle's `bootstrap.py`** for `plan` and `install`.
 Its reader recognizes exactly the original, peer-preview, v0.2 setup/update and
 v0.3 closed module sets. The v0.2 bootstrap cannot read the
-expanded v0.3 bundle. This version adds the Codex and Claude streaming
+expanded v0.3 bundle. v0.3 added the Codex and Claude streaming
 adapters, shared native output capture and peer input control without relaxing
 unknown-member refusal.
 
 Rollback can reactivate the retained old release and its matching bootstrap.
-Afterward, use the newer reviewed bootstrap if installation inspection or
-uninstall must account for retained newer releases; the old manager does not
-understand their expanded payload. Retain both bundles and recovery metadata.
+The `multithread` alias still reaches that selected runtime, whose commands and
+displayed names reflect its older version. Manage the rolled-back installation
+with the latest reviewed release's bootstrap or installer when inspecting,
+updating, repairing or uninstalling: older managers do not understand newer
+retained layouts, payloads or receipts. Retain both bundles and recovery metadata.
 
 Bootstrap and runtime are stored as one approved release pair. A unique launch
-ID names a prepared record and deterministic wrapper for that pair. The one
-published command symlink selects both together; bootstrap selection and
-runtime selection are not separate commits.
+ID names a prepared record and deterministic wrapper for that pair. The `relay`
+selector symlink selects both together; the stable `multithread` alias leads to
+that selector and adds no independent activation. Bootstrap selection and runtime
+selection are not separate commits. Existing verified loader bytes are retained.
 
 Preparation records/wrappers remain open and are checked against their exact
 expected bytes before and after publication. The current activation ID is
@@ -229,7 +251,7 @@ changes to retained artifacts are not universally detected.
 To select a previously installed approved release:
 
 ```sh
-~/.local/bin/relay runtime activate \
+~/.local/bin/multithread runtime activate \
   --release-sha256 PREVIOUS_RELEASE_SHA256 \
   --expected-activation CURRENT_ACTIVATION_ID
 ```
@@ -267,7 +289,7 @@ current valid pair is the intended pair, no retry is needed. Otherwise use
 activate with a newly observed activation ID, or explicit none if no command
 is present, as described below. Partial releases are not silently completed.
 
-If the command is still a recognized owned Relay selector but its release or
+If the command is still a recognized owned Multithread selector but its release or
 launch record is damaged, inspect offers recover options for verified retained
 releases. Review the selected release's provenance and use the exact selector
 observation printed by inspection:
@@ -294,9 +316,9 @@ automatically approved by recovery.
 
 ```sh
 /usr/bin/python3 -I -S -B src/relay_bootstrap.py recover-plan \
-  --release dist/relay-replacement --approve-sha256 REPLACEMENT_RELEASE_SHA256
+  --release dist/multithread-replacement --approve-sha256 REPLACEMENT_RELEASE_SHA256
 /usr/bin/python3 -I -S -B src/relay_bootstrap.py recover-install \
-  --release dist/relay-replacement --approve-sha256 REPLACEMENT_RELEASE_SHA256 \
+  --release dist/multithread-replacement --approve-sha256 REPLACEMENT_RELEASE_SHA256 \
   --expected-selector CURRENT_SELECTOR_OBSERVATION
 ```
 
@@ -336,11 +358,13 @@ not delete releases, launch records, account enrollments, project ledgers or
 provider hooks, and it does not stop commands that are already running. Stop
 new work and remove any separately configured hook invocation first; automatic
 provider trust/settings cleanup is not performed. With invocation-only opt-in,
-start subsequent provider processes without the generated Relay arguments.
+start subsequent provider processes without the generated Multithread arguments.
+Disabling the selected launcher prevents both command names from starting new
+work; it does not remove the compatible alias or installed code.
 
 ```sh
-~/.local/bin/relay runtime disable-plan
-~/.local/bin/relay runtime disable --expected-selector CURRENT_SELECTOR_OBSERVATION
+~/.local/bin/multithread runtime disable-plan
+~/.local/bin/multithread runtime disable --expected-selector CURRENT_SELECTOR_OBSERVATION
 ```
 
 The plan is read-only and checks the existing installation root and lock without

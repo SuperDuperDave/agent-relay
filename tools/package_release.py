@@ -220,7 +220,7 @@ def package_release(repository, revision, version, output):
         archive_name = prefix + "-linux-x86_64.tar.gz"
         permalink = REPOSITORY_URL + "/blob/" + revision
         readme = (
-            f"# Relay {version}\n\n"
+            f"# Multithread {version}\n\n"
             "For the supported Linux x86-64 profile with Python 3.12 at `/usr/bin/python3`.\n\n"
             f"[Source commit]({REPOSITORY_URL}/tree/{revision}) · "
             f"[Setup]({permalink}/docs/SETUP.md) · "

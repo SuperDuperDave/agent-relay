@@ -444,7 +444,7 @@ def _send(files, call, args):
 
 
 def control_main(argv=None):
-    parser = argparse.ArgumentParser(prog="relay peer control", description=(
+    parser = argparse.ArgumentParser(prog="multithread peer control", description=(
         "Send input to an owned peer or inspect its private receipt. Codex targets an exact active turn; "
         "opted-in Claude calls accept session input that may start a later turn. Exit: 0 accepted/consumed/status; "
         "1 rejected/unavailable/uncertain; 2 pending. Neither receipt establishes task completion."))
@@ -466,7 +466,8 @@ def control_main(argv=None):
         if args.command != "status":
             args.request_id = _uuid(args.request_id or str(uuid.uuid4()))
             result["request_id"] = args.request_id
-            launcher = str(Path(pwd.getpwuid(os.getuid()).pw_dir) / ".local/bin/relay")
+            from . import account_launcher
+            launcher = str(account_launcher())
             result["inspect_argv"] = [launcher, "peer", "control", "receipt", "--call-dir",
                                       str(args.call_dir.absolute()), "--request-id", args.request_id, "--json"]
             result["inspect_command"] = shlex.join(result["inspect_argv"])
@@ -480,7 +481,7 @@ def control_main(argv=None):
                           detail="Target metadata is an observation, not proof that its owner is still running.")
         elif args.command == "send":
             result.update(session_id=args.session, turn_id=args.turn)
-            print("relay peer input: request " + args.request_id + "; call directory " + str(files.directory)
+            print("multithread peer input: request " + args.request_id + "; call directory " + str(files.directory)
                   + "; submission not yet verified", file=sys.stderr, flush=True)
             result.update(_send(files, call, args))
         else:

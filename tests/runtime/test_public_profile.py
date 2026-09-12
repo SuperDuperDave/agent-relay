@@ -26,7 +26,8 @@ home = pathlib.Path("/home/relay-fixture")
 foreign = pathlib.Path("/tmp/foreign-home")
 project = pathlib.Path("/tmp/project")
 installation = home / ".local/share/relay/installation"
-launcher = home / ".local/bin/relay"
+launcher = home / ".local/bin/multithread"
+compatibility_launcher = home / ".local/bin/relay"
 assert sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode
 assert os.getuid() == os.geteuid() == os.getgid() == os.getegid() == 1000
 assert pwd.getpwuid(os.getuid()).pw_dir == str(home)
@@ -69,7 +70,7 @@ public = ["/usr/bin/python3", "-I", "-S", "-B", "/source/src/relay_bootstrap.py"
 plan = call(public + ["plan", "--release", "/bundle", "--approve-sha256", release_id])
 assert plan["expected_activation"] is None, plan
 assert plan["launcher"] == str(launcher), plan
-assert plan["writes"] == [str(installation), str(launcher)], plan
+assert plan["writes"] == [str(installation), str(compatibility_launcher), str(launcher)], plan
 assert not plan["enrolls_projects"] and not plan["changes_hooks"] and not plan["network_access"], plan
 assert snapshot(home) == before_home, "plan created account state"
 assert snapshot(foreign) == before_foreign, "plan wrote ambient HOME"
@@ -80,12 +81,13 @@ assert installed["installed"], installed
 assert installed["activation"]["release_id"] == release_id, installed
 assert not installed["enrolls_projects"] and not installed["changes_hooks"] and not installed["network_access"]
 assert launcher.is_symlink()
+assert compatibility_launcher.is_symlink() and os.readlink(launcher) == str(compatibility_launcher)
 assert not (home / ".local/share/relay/enrollments").exists()
 assert not (project / ".relay").exists()
 assert snapshot(foreign) == before_foreign, "installation wrote ambient HOME"
 assert snapshot(project) == before_project, "installation touched target Git code or hooks"
 assert {p.name for p in (home / ".local/share/relay").iterdir()} == {"installation"}
-assert {p.name for p in (home / ".local/bin").iterdir()} == {"relay"}
+assert {p.name for p in (home / ".local/bin").iterdir()} == {"multithread", "relay"}
 record = json.loads((installation / "releases" / release_id / "release.json").read_text())
 body = (installation / "releases" / release_id / "bootstrap.py").read_bytes()
 assert hashlib.sha256(body).hexdigest() == record["bootstrap"]["sha256"]
@@ -108,6 +110,8 @@ status = call([str(launcher), "runtime", "status"])
 assert status["installed"], status
 assert status["activation"]["release_id"] == sys.argv[2], status
 assert status["launcher"] == str(launcher), status
+assert status["preferred_command_available"] is True
+assert call([str(compatibility_launcher), "runtime", "status"]) == status
 assert not status["enrollment_changed"] and not status["hooks_changed"], status
 assert snapshot(home) == before_home, "runtime status changed installation"
 assert snapshot(foreign) == before_foreign, "launcher used poisoned HOME/imports"
@@ -182,7 +186,8 @@ assert plan["can_disable"] and not plan["removes_release_files"]
 assert snapshot(home) == before_plan, "disable plan wrote state"
 disabled = call([str(launcher), "runtime", "disable",
                  "--expected-selector", plan["expected_selector"]])
-assert disabled["disabled"] and not launcher.exists() and not launcher.is_symlink()
+assert disabled["disabled"] and not launcher.exists() and launcher.is_symlink()
+assert not compatibility_launcher.exists() and not compatibility_launcher.is_symlink()
 retained = pathlib.Path(disabled["retained_selector"])
 assert retained.is_symlink() and os.readlink(retained) == active["target"]
 old_wrapper = subprocess.run([active["target"], "runtime", "status"], text=True, capture_output=True)
@@ -251,6 +256,12 @@ assert relay("doctor")["ok"]
 # Claims conflict, wrong sessions cannot release, and worktrees share identity.
 claim = relay("claim", "code:sample", "--agent", "codex", "--session", "implementer",
               "--purpose", "bounded fixture implementation")["claim"]
+legacy_base = [str(compatibility_launcher), "--repo", str(project), "--json"]
+assert call(legacy_base + ["status"])["active_claims"] == relay("status")["active_claims"]
+legacy_conflict = subprocess.run(legacy_base + ["claim", "code:sample", "--agent", "claude",
+    "--session", "legacy-contender", "--purpose", "same ownership boundary"],
+    cwd=project, text=True, capture_output=True, timeout=20)
+assert legacy_conflict.returncode != 0 and legacy_conflict.stdout == ""
 relay("claim", "code:sample", "--agent", "claude", "--session", "reviewer",
       "--purpose", "contender", success=False)
 relay("release", claim["claim_id"], "--agent", "codex", "--session", "wrong", success=False)

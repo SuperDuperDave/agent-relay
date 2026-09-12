@@ -183,7 +183,7 @@ class Admission:
 
     def resolve_paths(self, repo, state_home, *, create_state=True):
         if state_home is not None or "RELAY_HOME" in os.environ:
-            raise StateError("installed Relay does not accept state-directory overrides")
+            raise StateError("installed Multithread does not accept state-directory overrides")
         workspace = _resolve_workspace(repo or os.getcwd(), self.custody)
         if (workspace.common != self.workspace.common
                 or workspace.common_device != self.workspace.common_device

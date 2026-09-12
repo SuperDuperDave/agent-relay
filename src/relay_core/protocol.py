@@ -1,6 +1,6 @@
-"""Validated, deliberately small protocol for the Relay ledger.
+"""Validated, deliberately small protocol for the Multithread ledger.
 
-Relay records coordination facts, not agent transcripts.  The validator is
+Multithread records coordination facts, not agent transcripts.  The validator is
 therefore intentionally restrictive: one-line summaries, bounded identifiers,
 and event-specific metadata keys.  If a new fact does not fit, extend the
 protocol deliberately instead of pouring an opaque hook payload into SQLite.
@@ -330,7 +330,7 @@ def normalize_event(raw: Mapping[str, Any], *, internal: bool = False) -> Event:
         raise ValidationError(f"unsupported event kind: {kind}")
     if kind in INTERNAL_EVENT_KINDS and not internal:
         raise ValidationError(
-            f"{kind} is emitted only by a dedicated Relay transaction"
+            f"{kind} is emitted only by a dedicated Multithread transaction"
         )
 
     event_id = raw.get("id") or new_event_id()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Development entrypoint for the source-bound Relay coordination ledger.
+"""Development entrypoint for the source-bound Multithread coordination ledger.
 
 This entrypoint is for repository-local development and isolated tests. It is
 not an installed launcher or proof of workspace enrollment.

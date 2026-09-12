@@ -60,6 +60,7 @@
     "tests/runtime/test_bootstrap.py",
     "tests/runtime/test_demo.py",
     "tests/runtime/test_distribution.py",
+    "tests/runtime/test_command_alias.py",
     "tests/runtime/test_enrollment.py",
     "tests/runtime/test_external_recovery.py",
     "tests/runtime/test_installed.py",
@@ -68,6 +69,7 @@
     "tests/runtime/test_null_sink.py",
     "tests/runtime/test_package_release.py",
     "tests/runtime/test_peer.py",
+    "tests/runtime/test_peer_output.py",
     "tests/runtime/test_codex_protocol.py",
     "tests/runtime/test_codex_cleanup.py",
     "tests/runtime/test_claude_protocol.py",
@@ -103,6 +105,12 @@
       "reason": "synthetic-test-fixture"
     },
     {
+      "path": "tests/runtime/test_public_setup.py",
+      "rule": "email-address",
+      "line_sha256": "15c9f9307d5ec267ef235ba6501b93dbaeec28f30f55a68ffd7014811db978ff",
+      "reason": "synthetic-test-fixture"
+    },
+    {
       "path": "tests/runtime/test_update.py",
       "rule": "email-address",
       "line_sha256": "2085956cbbeed42a1066719e60de8cce977dbaf7b8e2eccd375f559339b5c935",
@@ -117,13 +125,13 @@
     {
       "path": "docs/PROVIDERS.md",
       "rule": "personal-home-path",
-      "line_sha256": "adb662904cd06a5330e9b08f3c82f44bc88036a418abc9b71d5e5fb92c864109",
+      "line_sha256": "c3e69e87c7ddd48274d52d269986aef5fcdd4fb36c586e030c2ec2c8b2dad1e5",
       "reason": "public-example"
     },
     {
       "path": "docs/PROVIDERS.md",
       "rule": "personal-home-path",
-      "line_sha256": "1fc40797f20e913e18cef695368d56612aa26fe84d434adcb018a04b5d991419",
+      "line_sha256": "f0c1f8370d6bc1fd75b0bb1a4efc06c4b9334b41add258d7efb88d60bfd21af3",
       "reason": "public-example"
     },
     {
@@ -195,7 +203,7 @@
     {
       "path": "tests/providers/codex_discovery_probe.py",
       "rule": "personal-home-path",
-      "line_sha256": "fa8aa539b3f1980855909e4e16dcb707210c54a29613c146b60ce415a98f13db",
+      "line_sha256": "a9bb091c42ebf623bc74785cbcacde54f747523f8c97f8670f2bce1444b62550",
       "reason": "synthetic-test-fixture"
     },
     {

@@ -12,7 +12,7 @@ import sys
 HOME = Path("/home/relay-demo")
 PROJECT = Path("/tmp/project")
 REVIEW = Path("/tmp/review")
-RELAY = HOME / ".local/bin/relay"
+RELAY = HOME / ".local/bin/multithread"
 RESOURCE = "code:demo-progress"
 WORK = "progress-clamp"
 BASELINE = """def percent(completed, total):
@@ -63,7 +63,7 @@ def git(*args, repo=PROJECT, payload=None):
 
 def relay(*args, repo=PROJECT):
     result = command([str(RELAY), "--repo", str(repo), "--json", *args], cwd=repo)
-    require(not result.stderr, "Relay emitted unexpected diagnostics")
+    require(not result.stderr, "Multithread emitted unexpected diagnostics")
     return json.loads(result.stdout)
 
 

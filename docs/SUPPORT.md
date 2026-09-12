@@ -7,9 +7,11 @@ and bounded native provider work have separate evidence.
 the [selected release](https://github.com/SuperDuperDave/agent-relay/releases) for
 package and onboarding results.
 
-The `relay` command, release filenames and repository URLs remain unchanged.
-The [project page](https://mainthread.ai/work/relay/) introduces Multithread;
-the diagnostics and historical evidence below retain the Relay runtime name.
+The preferred command is `multithread` from v0.4; `relay` remains compatible.
+Both names share one installation and ledger. Existing v0.3 installations use
+`relay` until updated. Release filenames, repository URLs and internal storage
+names remain unchanged. The [project page](https://mainthread.ai/work/relay/)
+introduces Multithread; historical evidence below retains its recorded names.
 
 ## Exercised profile
 
@@ -27,7 +29,7 @@ the bwrap executable is installed.
 
 For one concrete policy mechanism, see Ubuntu's
 [AppArmor namespace restrictions](https://documentation.ubuntu.com/security/security-features/privilege-restriction/apparmor/).
-The appropriate policy depends on the environment. Relay's installer and demo
+The appropriate policy depends on the environment. Multithread's installer and demo
 leave developer-machine policy unchanged; the hosted job uses the explicit
 CI profile described below.
 
@@ -51,7 +53,7 @@ instructions and controller Git commits. Trying that workflow requires your own 
 access and reviewed permissions; the historical credential-free probes retain
 their narrower scope.
 
-The v0.3 source adds Codex peer calls and live input. Its
+The published v0.3.0 release includes Codex peer calls and live input. Its
 [source-entry observations and limitations](PEER.md#coordination-and-verification-scope)
 use Codex 0.153.4 and Claude Code 2.1.269 on the existing developer profile.
 They include native artifacts from interrupted calls and do not establish
@@ -60,17 +62,17 @@ separate installed Claude call/return and exact-session resume evidence.
 
 ## Diagnose without changing live configuration
 
-Start with `~/.local/bin/relay setup --check --repo /absolute/checkout` for a
+Start with `~/.local/bin/multithread setup --check --repo /absolute/checkout` for a
 read-only runtime/repository check and available provider launch plans. Add
 `--json` for structured stages and exact next commands. Provider authentication,
 hook delivery and tool execution remain separately unobserved. Use
-`~/.local/bin/relay update --check` for an explicit online release check;
+`~/.local/bin/multithread update --check` for an explicit online release check;
 network failure means unavailable information, not an up-to-date installation.
 
 For a first look, run the [no-account demo](DEMO.md) on the supported profile.
 The [strict suite](CI.md) checks the full local acceptance contract. Both use
 disposable fixtures without enrolling this checkout or enabling provider hooks.
-For an installed command, start with `~/.local/bin/relay runtime status`, using
+For an installed command, start with `~/.local/bin/multithread runtime status`, using
 the exact launcher path printed during installation if it differs. Project
 status requires the separately [initialized repository](engineering/INSTALLATION.md#choose-and-initialize-a-repository).
 
@@ -81,14 +83,16 @@ status requires the separately [initialized repository](engineering/INSTALLATION
 | Tests skipped, zero discovered, or fewer run than discovered | The strict acceptance gate must fail. Read the test diagnostics and fix the cause; do not relabel the reduced run as complete coverage. |
 | Landlock or creation-time evidence unavailable | The installed write boundary cannot be established on that profile. Use a verified environment/filesystem; there is no permissive fallback. |
 | Unenrolled or ambiguous repository | Follow [explicit initialization](engineering/INSTALLATION.md#choose-and-initialize-a-repository) for a new chosen repository. Preserve existing state when identity is ambiguous; do not forge markers or delete state to bypass a refusal. |
-| Initialized repository moved on the same filesystem | Stop all its Relay users and follow [explicit rebind](engineering/REBIND.md). The original physical objects must remain; copied/restored ledgers and cross-filesystem migration are unsupported. |
+| Initialized repository moved on the same filesystem | Stop all its Multithread users and follow [explicit rebind](engineering/REBIND.md). The original physical objects must remain; copied/restored ledgers and cross-filesystem migration are unsupported. |
 | Interrupted rebind or inconsistent transition history | Preserve retained records. Only a valid unfinished transition to its exact pinned target is retryable; malformed, conflicting or incomplete history remains blocked without pruning. |
-| Unknown relay command, changed selector or uncertain install | Preserve existing files and inspect using a separately reviewed bootstrap. Use fresh exact observations, not deletion or blind retry. |
+| Unknown multithread/relay command, changed selector or uncertain install | Preserve existing files and inspect using a separately reviewed bootstrap. Use fresh exact observations, not deletion or blind retry. |
 | Provider login or hook-trust failure | This is distinct from SSH connectivity and ledger installation. The no-account tests cannot establish provider authentication or trusted hook execution. |
 | Peer input accepted or consumed, but the call needs attention | Input receipts and task completion are separate. Inspect the call result, retained native observations and actual artifacts before a deliberate follow-up; see [peer results](PEER.md#read-the-result-before-continuing). |
 | Streaming stdout limit exceeded | Streaming calls retain only a bounded prefix, close native input and clean up their owned process. A previously observed answer can survive with `needs_attention`; later output is unavailable. See [capture limits](PEER.md#read-the-result-before-continuing). |
 
 For a damaged launcher, follow [installation recovery](engineering/INSTALLATION.md).
+If you own an unrelated command occupying the `multithread` path, deliberately
+relocate it through its own setup before retrying; Multithread does not move or delete it.
 For removal, follow [verified code uninstall](engineering/UNINSTALL.md).
 Neither workflow is a general ledger purge, provider logout, automatic claim
 expiry or permission to delete unknown state. If no separately verified release
@@ -110,7 +114,7 @@ not a public issue. No response-time commitment is made.
 
 ## Trust limits
 
-Relay coordinates cooperating agents under one trusted OS account. Session
+Multithread coordinates cooperating agents under one trusted OS account. Session
 labels are not hostile-user authentication; claims do not grant shell or cloud
 permissions. Retained-byte verification and exact file-write confinement are not
 a general malicious-code sandbox. Physical power-loss behavior and every

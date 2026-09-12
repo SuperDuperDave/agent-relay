@@ -164,7 +164,7 @@ class DemoTests(unittest.TestCase):
         result = self.public_process([fixture / "examples/no_account_demo.py", "--json"])
         self.assertEqual(2, result.returncode, result.stdout + result.stderr)
         self.assertEqual("", result.stdout, "broken fixture emitted a pass/ACK receipt")
-        self.assertIn("Relay demo did not pass:", result.stderr)
+        self.assertIn("Multithread demo did not pass:", result.stderr)
         self.assertIn("exited 1, expected 0", result.stderr)
         self.assertIn("FAILED (failures=2)", result.stderr)
         self.assertNotIn('"ack_events"', result.stderr)

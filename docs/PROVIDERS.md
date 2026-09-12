@@ -1,11 +1,13 @@
 # Provider hooks
 
-Relay v0.2.0 also packages [native peer calls](PEER.md), which
-return Claude's output to the initiating task, and `relay launch` for interactive
-launches. The v0.1.0 walkthrough and historical evidence below retain their
-manual-notification scope.
+Multithread packages [native peer calls](PEER.md), which return Claude's or
+Codex's answer to the initiating task, and `multithread launch` for interactive
+launches. Start with the [first-collaboration prompt](PEER.md#first-collaboration)
+for one scoped read-only review. The manual walkthrough and historical evidence
+below retain their separate scope. Commands use the preferred v0.4 launcher;
+`relay` remains compatible with the same installation and ledger.
 
-Relay supplies a coordination contract and pending-work brief to Codex and
+Multithread supplies a coordination contract and pending-work brief to Codex and
 Claude through their native hooks. The installed `provider-config` command
 generates arguments for one provider launch. A bounded native workflow used
 Codex 0.153.4 as author and Claude 2.1.267 as reviewer on Linux/WSL2; its
@@ -13,9 +15,9 @@ Codex 0.153.4 as author and Claude 2.1.267 as reviewer on Linux/WSL2; its
 Follow the [two-worktree walkthrough](#try-a-review-across-two-worktrees) to try
 the integration with your own provider access and reviewed permissions.
 
-Installing Relay does not install hooks, trust code, change provider permissions,
+Installing Multithread does not install hooks, trust code, change provider permissions,
 launch providers, or acknowledge work. Do not add the new handler alongside an
-existing Relay lifecycle/brief handler: duplicate handlers may create duplicate
+existing Multithread lifecycle/brief handler: duplicate handlers may create duplicate
 observations and repeated context. Invocation-only arguments provide opt-in
 without persistent provider-setting edits; native review remains separate.
 
@@ -24,7 +26,7 @@ is enrolled, the installed interactive launch command
 provides the invocation example below without manual path/argument editing:
 
 ```sh
-~/.local/bin/relay launch codex --repo /absolute/enrolled/checkout
+~/.local/bin/multithread launch codex --repo /absolute/enrolled/checkout
 ```
 
 Use `claude` for the other provider. Add `--json` to prepare a launch plan without
@@ -36,7 +38,7 @@ establish native trust, model-visible context or working provider tools.
 A reviewed hook definition must invoke the absolute account-installed launcher:
 
 ```text
-/ABSOLUTE/ACCOUNT/HOME/.local/bin/relay --repo /ABSOLUTE/ENROLLED/CHECKOUT provider-hook --client codex
+/ABSOLUTE/ACCOUNT/HOME/.local/bin/multithread --repo /ABSOLUTE/ENROLLED/CHECKOUT provider-hook --client codex
 ```
 
 Use `claude` for the other client. Shell-quote each actual argument; the paths above
@@ -103,16 +105,25 @@ lifecycle guarantee.
 
 ## Invocation-only opt-in
 
-After explicitly installing Relay and enrolling the checkout, generate a plan:
+After explicitly installing Multithread and enrolling the checkout, generate a plan:
 
 ```text
-/ABSOLUTE/ACCOUNT/HOME/.local/bin/relay --repo /ABSOLUTE/ENROLLED/CHECKOUT --json provider-config --client codex
+/ABSOLUTE/ACCOUNT/HOME/.local/bin/multithread --repo /ABSOLUTE/ENROLLED/CHECKOUT --json provider-config --client codex --launcher-name multithread
 ```
 
 Use `claude` for the other client. The JSON result contains the exact
 `hook_command`, event list and `native_arguments`. It requires a healthy existing
 ledger, reads it through the confined readonly path, and creates no provider
 settings, executable, permissions, trust record or provider process.
+
+The low-level schema-1 `provider-config` default keeps the `relay` hook entry so
+existing native helpers receive the exact hook arguments they already validate.
+Current native helpers and the manual examples here explicitly select
+`--launcher-name multithread`. This option chooses only the installed account's
+`multithread` or `relay` entry; it cannot name an arbitrary executable. Use
+`multithread` for new scripts and instructions; see the
+[command compatibility policy](engineering/INSTALLATION.md#command-compatibility)
+for saved hooks and older callers.
 
 Review this output, then supply its `native_arguments` as additional argv entries
 to the reviewed provider executable, running in the same checkout. Pass an argv
@@ -136,13 +147,13 @@ import subprocess
 client = "codex"
 checkout = Path("/absolute/path/to/enrolled-checkout")
 provider = Path("/absolute/path/to/codex")
-relay = Path(pwd.getpwuid(os.getuid()).pw_dir) / ".local/bin/relay"
+multithread = Path(pwd.getpwuid(os.getuid()).pw_dir) / ".local/bin/multithread"
 
 if not checkout.is_absolute() or not provider.is_absolute():
     raise SystemExit("Use absolute checkout and provider paths.")
 plan = json.loads(subprocess.check_output(
-    [str(relay), "--repo", str(checkout), "--json",
-     "provider-config", "--client", client],
+    [str(multithread), "--repo", str(checkout), "--json",
+     "provider-config", "--client", client, "--launcher-name", "multithread"],
     cwd=checkout, text=True,
 ))
 if plan["schema"] != 1 or plan["provider"] != client or plan["repo"] != str(checkout):
@@ -159,23 +170,23 @@ Save the example as a local script and run it with `python3 -I -S -B` followed
 by its filename. Native Codex may present its own hook review; verify the
 displayed command before trusting it. Starting this example does not deliver a
 task or wake another agent. Give each agent its task in the provider interface;
-inspect pending work with Relay's `brief` and `events` commands.
+inspect pending work with Multithread's `brief` and `events` commands.
 
 No permanent hook fragment needs installation or removal. A new provider process
-started without these arguments has no Relay invocation contribution. This does
+started without these arguments has no Multithread invocation contribution. This does
 not stop an existing session, undo lifecycle events, release claims, or erase
 provider-owned caches/trust history. Native provider startup may write its normal
 state; the configuration generator itself does not.
 
 Existing user/project configuration is not disabled or rewritten. Review it
 before launching a provider, especially in headless mode. Do not add a second
-Relay adapter or combine conflicting overrides for the same hook key/additional
+Multithread adapter or combine conflicting overrides for the same hook key/additional
 `--settings` flags without inspecting the effective native configuration. This
 is not a generic merger for arbitrary user-supplied invocation arguments.
 
 Codex's exact-definition hook review is still a separate native step. The
 generator deliberately includes no trust bypass or permission-policy flags.
-Native trust covers the hook definition; Relay's installer separately approves
+Native trust covers the hook definition; Multithread's installer separately approves
 the release behind the stable launcher. A configuration plan is not approval to
 run an unreviewed release.
 
@@ -201,7 +212,7 @@ Later sequence-only wakes announce pending work within that assignment; ledger
 fields do not expand it.
 
 Give Codex a small, bounded task with an explicit test command. Ask it to read
-the current Relay contract, record its intent, claim the agreed resource, make
+the current Multithread contract, record its intent, claim the agreed resource, make
 the change and run the tests. For example, use `file:progress.py` as the resource
 for a change confined to `progress.py`. Each agent must use the identity supplied
 by its own hook; never copy the other session's identity into a mutation.
@@ -215,7 +226,7 @@ the author's claim held for the contention check, then let its turn finish.
 A completed turn does not release its claim.
 
 Read the handoff's sequence from the actual command result. In Claude, send
-`Wake: Relay sequence N.` with that sequence in place of `N`. Claude should read
+`Wake: Multithread sequence N.` with that sequence in place of `N`. Claude should read
 the full event and inspect its immutable artifact before acting. Its actual
 claim attempt on the occupied resource must refuse, leaving the
 handoff pending and the reviewer files unchanged. The reviewer should record

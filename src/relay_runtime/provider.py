@@ -23,6 +23,7 @@ import tempfile
 import time
 import tomllib
 import uuid
+from . import account_launcher
 
 
 class LaunchError(Exception):
@@ -74,8 +75,8 @@ def executable(value, name):
 
 def prepare(client, repo, relay, provider):
     if platform.system() != "Linux" or platform.machine() != "x86_64":
-        raise LaunchError("This Relay release requires a supported x86-64 Linux environment; see docs/SUPPORT.md.")
-    # Relay must see the supplied components before any normalization: resolving
+        raise LaunchError("This Multithread release requires a supported x86-64 Linux environment; see docs/SUPPORT.md.")
+    # Multithread must see the supplied components before any normalization: resolving
     # an alias here would erase a symlink its enrollment boundary should refuse.
     checkout = Path(repo)
     if not checkout.is_absolute():
@@ -83,27 +84,28 @@ def prepare(client, repo, relay, provider):
     if not checkout.is_dir():
         raise LaunchError("--repo must identify the enrolled checkout directory.")
     if relay is None:
-        import pwd
-        relay = Path(pwd.getpwuid(os.getuid()).pw_dir) / ".local/bin/relay"
-    launcher = executable(relay, "Relay")
+        relay = account_launcher()
+    launcher = executable(relay, "Multithread")
     provider_path = executable(provider, client)
     command = [launcher, "--repo", str(checkout), "--json", "provider-config", "--client", client]
+    if Path(launcher).name == "multithread":
+        command.extend(["--launcher-name", "multithread"])
     try:
         result = subprocess.run(command, cwd=checkout, stdin=subprocess.DEVNULL,
                                 capture_output=True, text=True, timeout=15, check=False)
     except subprocess.TimeoutExpired:
-        raise LaunchError("Relay configuration timed out; observation is unavailable. Inspect installed status before retrying.") from None
+        raise LaunchError("Multithread configuration timed out; observation is unavailable. Inspect installed status before retrying.") from None
     except UnicodeError:
-        raise LaunchError("Relay returned unreadable configuration output; observation is unavailable.") from None
+        raise LaunchError("Multithread returned unreadable configuration output; observation is unavailable.") from None
     if result.returncode != 0:
         # Give the exact native command for diagnosis without copying arbitrary
         # diagnostics into the structured launch plan.
         raise LaunchError(
-            f"Relay refused launch preparation (exit {result.returncode}); run: {shlex.join(command)}")
+            f"Multithread refused launch preparation (exit {result.returncode}); run: {shlex.join(command)}")
     try:
         plan = json.loads(result.stdout)
     except (ValueError, RecursionError):
-        raise LaunchError("Relay did not return a valid configuration plan; no provider was started.") from None
+        raise LaunchError("Multithread did not return a valid configuration plan; no provider was started.") from None
     if not isinstance(plan, dict) or type(plan.get("schema")) is not int or plan["schema"] != 1:
         raise LaunchError("Unsupported configuration plan; no provider was started.")
     if plan.get("provider") != client or plan.get("repo") != str(checkout):
@@ -119,7 +121,7 @@ def prepare(client, repo, relay, provider):
     except ValueError:
         raise LaunchError("The configuration plan has an invalid hook command.") from None
     if hook != [launcher, "--repo", str(checkout), "provider-hook", "--client", client]:
-        raise LaunchError("The hook command does not match the selected Relay and checkout.")
+        raise LaunchError("The hook command does not match the selected Multithread and checkout.")
     arguments = plan.get("native_arguments")
     if (not isinstance(arguments, list) or not arguments
             or any(not isinstance(arg, str) or "\0" in arg for arg in arguments)):
@@ -132,10 +134,10 @@ def prepare(client, repo, relay, provider):
 
 
 def launch_main(argv=None):
-    parser = argparse.ArgumentParser(prog="relay launch", description="Review invocation-only Relay hooks and start an interactive provider.")
+    parser = argparse.ArgumentParser(prog="multithread launch", description="Review invocation-only Multithread hooks and start an interactive provider.")
     parser.add_argument("client", choices=("codex", "claude"))
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="enrolled checkout; default: current directory")
-    parser.add_argument("--relay", type=Path, help="reviewed absolute installed launcher; default: OS-account installation")
+    parser.add_argument("--multithread", "--relay", dest="relay", type=Path, help="reviewed absolute installed launcher; --relay is a compatibility spelling")
     parser.add_argument("--provider", type=Path, help="reviewed absolute provider entry point; default: PATH lookup")
     parser.add_argument("--json", action="store_true", help="print a plan without starting a provider or asking for input")
     args = parser.parse_args(argv)
@@ -145,7 +147,7 @@ def launch_main(argv=None):
             print(json.dumps(plan, sort_keys=True))
             return 0
         print(json.dumps(plan, indent=2))
-        print("Review the provider path, checkout and Relay hook command above.")
+        print("Review the provider path, checkout and Multithread hook command above.")
         print("Existing provider settings and permissions remain in effect. Native hook trust is a separate step.")
         if not sys.stdin.isatty():
             raise LaunchError("Use --json to prepare a plan here, or run this command in an interactive terminal to launch.")
@@ -161,10 +163,10 @@ def launch_main(argv=None):
             print(json.dumps({"schema": 1, "state": "unavailable", "provider_started": False,
                               "hook_delivery": "unknown", "provider_tools": "unknown", "message": message}))
         else:
-            print(f"relay launch: {message}", file=sys.stderr)
+            print(f"multithread launch: {message}", file=sys.stderr)
         return 1
     except (KeyboardInterrupt, EOFError):
-        print("relay launch: interrupted; inspect the provider if it had already started.", file=sys.stderr)
+        print("multithread launch: interrupted; inspect the provider if it had already started.", file=sys.stderr)
         return 130
 
 
@@ -379,7 +381,19 @@ def _interpret(directory, envelope):
     })
     envelope["needs_attention"] = bool(denials) or envelope["state"] != "returned" or (
         native.get("terminal_reason") not in (None, "end_turn", "completed"))
-    envelope["message"] = "Assess the answer and durable Relay evidence; a returned turn is not workflow completion."
+    if envelope["state"] == "provider_error":
+        causes = []
+        if native["is_error"]:
+            causes.append("The provider marked its result as an error.")
+        elif native["subtype"] != "success":
+            causes.append("The provider returned a non-success result.")
+        if envelope["process_exit_code"] is None:
+            causes.append("The provider process exit was not observed.")
+        elif envelope["process_exit_code"] != 0:
+            causes.append(f"The provider process exited with code {envelope['process_exit_code']}.")
+        envelope["message"] = " ".join(causes) + " Inspect retained output and evidence before continuing."
+    else:
+        envelope["message"] = "Assess the answer and durable Multithread evidence; a returned turn is not workflow completion."
 
 
 def peer_main(argv=None):
@@ -387,10 +401,10 @@ def peer_main(argv=None):
     if raw and raw[0] == "control":
         from .peer_control import control_main
         return control_main(raw[1:])
-    parser = argparse.ArgumentParser(prog="relay peer", description="Call a native provider and return its observed result to the initiating task.")
+    parser = argparse.ArgumentParser(prog="multithread peer", description="Call a native provider and return its observed result to the initiating task.")
     parser.add_argument("client", choices=("claude", "codex"))
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="enrolled peer checkout")
-    parser.add_argument("--relay", type=Path, help="reviewed absolute installed Relay launcher")
+    parser.add_argument("--multithread", "--relay", dest="relay", type=Path, help="reviewed absolute installed launcher; --relay is a compatibility spelling")
     parser.add_argument("--provider", type=Path, help="reviewed absolute provider entry point; default: PATH")
     parser.add_argument("--task-file", required=True, help="UTF-8 task packet; - reads stdin, at most 64 KiB")
     parser.add_argument("--resume", type=_native_identity, help="exact peer session identity from a previous result; no latest-session lookup")
@@ -471,7 +485,7 @@ def _run_peer(args, interruption):
             stream.write(task)
         # This durable breadcrumb survives an interrupted caller. Provider stdout
         # and stderr can contain private task context; they are never auto-published.
-        print(f"relay peer: session {session or 'assigned by provider'}; local evidence {directory}", file=sys.stderr, flush=True)
+        print(f"multithread peer: session {session or 'assigned by provider'}; local evidence {directory}", file=sys.stderr, flush=True)
         started = time.monotonic()
         from contextlib import nullcontext
         output_context = nullcontext(subprocess.PIPE) if streaming else _private_file(directory, "stdout.json")
@@ -529,7 +543,7 @@ def _run_peer(args, interruption):
                     _stop(process, observer) if observer is not None else _stop(process)
                 if process is not None:
                     envelope["provider_started"] = True
-                _call_problem(envelope, "Call interrupted or timed out; inspect the observed turn, retained output and Relay state before any follow-up.")
+                _call_problem(envelope, "Call interrupted or timed out; inspect the observed turn, retained output and Multithread state before any follow-up.")
                 code = (128 + (interruption["signal"] or signal.SIGINT)) if isinstance(exc, KeyboardInterrupt) else 1
             finally:
                 envelope["elapsed_seconds"] = round(time.monotonic() - started, 3)
@@ -591,20 +605,70 @@ def _run_peer(args, interruption):
     if args.json:
         print(json.dumps(envelope, ensure_ascii=True, sort_keys=True))
     else:
-        print(f"Relay peer: {envelope['state']}")
-        if envelope["result"]:
-            print(envelope["result"])
-        results = envelope.get("native_results", [])
-        if results and not results[-1]["related"] and results[-1].get("result_excerpt"):
-            print("Additional native session result (not attributed to this call's submitted input):")
-            print(results[-1]["result_excerpt"])
-            if results[-1].get("result_excerpt_truncated"):
-                print("[Excerpt truncated; the private native stdout retains the observed text.]")
-        print(envelope.get("message", "Inspect the peer result."))
-        if envelope["session_id"]:
-            print(f"Peer session: {envelope['session_id']}")
-        if envelope["evidence_directory"]:
-            print(f"Local evidence: {envelope['evidence_directory']}")
-        if envelope.get("permission_denials"):
-            print("Permission requests were denied; review them in the local result before continuing.")
+        _display_peer(envelope)
     return code
+
+
+def _display_peer(envelope):
+    """Show the observed answer and outstanding conditions without changing state."""
+    print(f"Multithread peer: {envelope['state']}")
+    if envelope.get("needs_attention"):
+        print("Needs attention: yes.")
+    if envelope["result"]:
+        print(envelope["result"])
+    results = envelope.get("native_results", [])
+    if results and not results[-1]["related"] and results[-1].get("result_excerpt"):
+        print("Additional native session result (not attributed to this call's submitted input):")
+        print(results[-1]["result_excerpt"])
+        if results[-1].get("result_excerpt_truncated"):
+            print("[Excerpt truncated; inspect the captured native stdout for available detail.]")
+    if envelope.get("native_results_truncated"):
+        print("Native result history is incomplete; inspect the captured native stdout for available detail.")
+
+    # These are selected diagnostic fields, never whole native objects or tool inputs.
+    details = [(label, envelope.get(key)) for key, label in (
+        ("evidence_recording", "Evidence recording"),
+        ("native_input_write_error", "Native input"),
+        ("server_cleanup", "Provider cleanup"),
+        ("owned_process_cleanup", "Process exit"),
+        ("stdout_completion", "Output completion"),
+    )]
+    if envelope["state"] == "provider_error":
+        details.append(("Provider result", envelope.get("provider_subtype")))
+        errors = envelope.get("provider_errors")
+        if isinstance(errors, list):
+            first_error = next((item for item in errors[:8] if isinstance(item, str) and item), None)
+            if first_error is not None:
+                details.append(("Provider error", first_error))
+                if len(errors) > 1:
+                    details.append(("Provider errors", f"showing 1 of {len(errors)} retained diagnostics; inspect retained output for the rest."))
+        if envelope.get("provider_errors_truncated"):
+            details.append(("Provider errors", "details were truncated; inspect retained output for available detail."))
+    fault = envelope.get("control_fault")
+    if isinstance(fault, dict):
+        details.append(("Peer input", fault.get("detail")))
+    reason = envelope.get("terminal_reason")
+    if reason not in (None, "end_turn", "completed"):
+        details.append(("Provider stopping reason", reason))
+    for label, value in details:
+        if isinstance(value, str) and value:
+            print(f"{label}: {value[:2000]}" + (" [Detail truncated.]" if len(value) > 2000 else ""))
+    observation = envelope.get("stdout_observation")
+    if isinstance(observation, dict) and observation.get("truncated"):
+        print("Output capture was truncated; only the captured prefix is available.")
+    if envelope.get("permission_denials"):
+        print("Permission requests were denied; review them in the local result before continuing.")
+    print(envelope.get("message", "Inspect the peer result."))
+    if envelope["session_id"]:
+        print(f"Peer session: {envelope['session_id']}")
+    observed_session = envelope.get("observed_session_id")
+    if isinstance(observed_session, str) and observed_session:
+        print(f"Observed session (unverified): {observed_session[:2000]}" +
+              (" [Detail truncated.]" if len(observed_session) > 2000 else ""))
+    if envelope["evidence_directory"]:
+        print(f"Local evidence: {envelope['evidence_directory']}")
+    if envelope.get("needs_attention"):
+        if envelope["evidence_directory"]:
+            print("Next: inspect the local evidence and any task artifacts before deciding on follow-up.")
+        else:
+            print("Next: inspect the reported condition before deciding whether to retry.")

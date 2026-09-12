@@ -1,1 +1,1 @@
-"""Relay coordination ledger."""
+"""Multithread coordination ledger."""

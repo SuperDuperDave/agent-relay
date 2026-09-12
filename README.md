@@ -13,11 +13,10 @@ working.
 A durable local ledger keeps resource claims, commit-backed handoffs and explicit
 acknowledgements available across interruptions.
 
-Multithread was previously called **Agent Relay**. Existing installations keep
-using `relay`; release filenames and the
+Multithread was previously called **Agent Relay**. The preferred command is
+`multithread`; `relay` remains a compatibility entry point to the same installation
+and ledger. Release filenames and the
 [repository URL](https://github.com/SuperDuperDave/agent-relay) remain unchanged.
-The guides retain Relay where they describe that runtime and its recorded
-evidence.
 
 - Call Claude or Codex through your existing provider installations and sign-ins,
   and send updates while a peer is running with v0.3.
@@ -25,15 +24,16 @@ evidence.
 - Hand off an immutable Git commit and keep it pending until acknowledged.
 - Recover pending work after a restart; notifications and reads never consume it.
 
-**v0.3 source preview.** Adds Codex peer calls and resume
-of an exact native thread, plus input to running peers. See the
+**v0.4 preview.** Makes `multithread` the installed entry point and connects setup
+to a first scoped collaboration. The published v0.3 release already includes
+Codex peer calls, exact native thread resume and input to running peers. See the
 [commands and native verification scope](docs/PEER.md), including
 the retained interrupted calls and their separately observed artifacts.
 
 The installer below selects the published release, whose version and package
-results should be reviewed before installation. The earlier v0.2.0 archive
-includes setup, launch, Claude peer calls and updates; Codex peer calls and live
-input require v0.3 or the reviewed source entry. Installed Claude call/return and
+results should be reviewed before installation. Install v0.4 or later to use
+the `multithread` commands shown here. Existing v0.3 installations use `relay`
+until updated. Installed Claude call/return and
 exact-session resume have separate v0.2 evidence on an existing Linux/WSL2
 developer profile. [Hosted checks](docs/CI.md) retain their named revisions.
 These observations do not establish fresh-account onboarding or broader
@@ -49,16 +49,16 @@ Use an ordinary **x86-64 Linux** account with Python 3.12 at `/usr/bin/python3`,
 Git at `/usr/bin/git`, Landlock ABI3+, procfs and supported filesystem birth times.
 WSL2 with ext4 is the exercised profile. See [support](docs/SUPPORT.md).
 Use your existing, functioning Codex/Claude installation and provider access;
-Relay does not provision them.
+Multithread does not provision them.
 
 From the Git repository you want to use, run this publisher's installer:
 
 ```sh
-relay_setup=$(mktemp) &&
+multithread_setup=$(mktemp) &&
   curl -fsSL --proto '=https' \
     https://github.com/SuperDuperDave/agent-relay/releases/latest/download/install.py \
-    -o "$relay_setup" &&
-  /usr/bin/python3 -I -S -B "$relay_setup" --enroll-repo "$PWD"
+    -o "$multithread_setup" &&
+  /usr/bin/python3 -I -S -B "$multithread_setup" --enroll-repo "$PWD"
 ```
 
 Trust and review the [publisher and release](https://github.com/SuperDuperDave/agent-relay/releases/latest)
@@ -71,13 +71,15 @@ Provider sign-ins, settings and permissions stay unchanged.
 
 Or give your coding agent the [setup prompt](docs/SETUP.md#ask-your-coding-agent).
 It covers installation, enrollment and launch preparation without requiring a
-Relay source checkout. The [setup guide](docs/SETUP.md) also covers pinned
+Multithread source checkout. Then use the copyable
+[first-collaboration prompt](docs/PEER.md#first-collaboration) to request and assess
+one scoped native review. The [setup guide](docs/SETUP.md) also covers pinned
 versions, partial setup and updates.
 
 Check readiness again at any time:
 
 ```sh
-~/.local/bin/relay setup --repo "$PWD" --check
+~/.local/bin/multithread setup --repo "$PWD" --check
 ```
 
 This is read-only. It distinguishes runtime/repository readiness from prepared
@@ -94,17 +96,17 @@ commands or a built-in scheduler; execution depends on available tools, supporte
 providers and authorized use.
 
 Follow [Call another native provider and continue your task](docs/PEER.md) for
-task scope, results and exact-session follow-up. The guide distinguishes the
-v0.2 Claude call/return command from v0.3 Codex calls and live input.
+task scope, a [first collaboration](docs/PEER.md#first-collaboration), results and
+exact-session follow-up.
 Calls use the provider's normal environment and permissions. Existing
 subscription sign-in can be used; provider configuration determines the billing
 path.
 
-To start an interactive Codex or Claude session with Relay hooks, use the exact
+To start an interactive Codex or Claude session with Multithread hooks, use the exact
 launch command printed by setup, or:
 
 ```sh
-~/.local/bin/relay launch codex --repo "$PWD"
+~/.local/bin/multithread launch codex --repo "$PWD"
 ```
 
 Use `claude` for the other provider. Review the invocation and type `launch`;
@@ -118,7 +120,7 @@ remains available for separate sessions with manual wakes and explicit Git work.
 ## Update
 
 ```sh
-~/.local/bin/relay update
+~/.local/bin/multithread update
 ```
 
 The updater checks the published release and asks once before applying a new
@@ -131,7 +133,7 @@ version selection and rollback.
 ## Try the no-account demo
 
 The optional demo uses scripts and real SQLite without provider accounts or an
-existing Relay installation. It reproduces a bug, commits a fix, recovers a
+existing Multithread installation. It reproduces a bug, commits a fix, recovers a
 missed handoff after restart, rejects conflicting claims and reviews the exact
 commit in another worktree. It ends with
 `PASS: 6 real ledger events; SQLite integrity ok.`
@@ -150,7 +152,7 @@ rootless/nested namespaces. These are extra demo/test prerequisites. See the
 
 ## Further reading
 
-Relay coordinates cooperating agents under one trusted local OS account. Claims
+Multithread coordinates cooperating agents under one trusted local OS account. Claims
 do not grant permissions, and acknowledgement records consumption rather than
 approval to merge or deploy. Failed state access is unknown state; claims have
 no automatic expiry. Native Windows, macOS, ARM Linux and cross-machine

@@ -777,7 +777,7 @@ class Registry:
         """
         from relay_core.protocol import StateError
         if confirm_quiescent is not True:
-            raise EnrollmentError("explicit confirmation that Relay users are quiescent is required")
+            raise EnrollmentError("explicit confirmation that Multithread users are quiescent is required")
         if not isinstance(expected_binding, str) or not _DIGEST.fullmatch(expected_binding):
             raise EnrollmentError("a complete expected binding from rebind-plan is required")
         started = False
@@ -904,7 +904,7 @@ class Registry:
                 if registry and registry.exists(name):
                     return self._lookup(repo, workspace, custody)
                 if parent.exists(workspace.state.name):
-                    raise EnrollmentError("existing Relay state is not enrolled; explicit recovery is required")
+                    raise EnrollmentError("existing Multithread state is not enrolled; explicit recovery is required")
                 if common.exists("relay-enrollment.json"):
                     raise EnrollmentError("existing Git enrollment marker has no account anchor")
                 publication_started = True

@@ -1,5 +1,11 @@
 # Release acceptance matrix
 
+This is the retained initial-release acceptance checkpoint, published under the
+Agent Relay name. Its counts, scope and state descriptions are historical
+evidence, not a live report for subsequent Multithread releases. See the
+[current overview](../../README.md), [peer evidence](../PEER.md#coordination-and-verification-scope)
+and each selected release for later capabilities and verification.
+
 Evidence applies only to the behavior and environment exercised. The bounded
 [native workflow](../PROVIDERS.md#bounded-native-workflow) complements the local
 no-account checks. [Hosted CI](../CI.md#hosted-result) records its exact commit;

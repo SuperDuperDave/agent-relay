@@ -13,6 +13,7 @@ import sys
 import tempfile
 
 from . import provider
+from . import account_launcher
 
 
 _MAX_OUTPUT = 128 * 1024
@@ -86,6 +87,7 @@ def _runtime_healthy(observation, launcher):
     data = observation.get("data", {})
     activation = data.get("activation")
     return (observation["state"] == "observed" and data.get("installed") is True
+            and data.get("preferred_command_available") is not False
             and data.get("launcher") == launcher and isinstance(activation, dict)
             and isinstance(activation.get("release_id"), str)
             and re.fullmatch(r"[0-9a-f]{64}", activation["release_id"]) is not None
@@ -118,7 +120,7 @@ def setup_report(repo, *, apply=False, codex=None, claude=None):
               "provider_started": False, "changes_provider_settings": False,
               "changes_permissions": False, "hook_delivery": "unknown",
               "provider_tools": "unknown", "provider_authentication": "unknown",
-              "path_note": "Use the exact launcher path below; Relay does not edit PATH.",
+              "path_note": "Use the exact launcher path below; Multithread does not edit PATH.",
               "next_actions": []}
     try:
         checkout = Path(repo)
@@ -126,7 +128,7 @@ def setup_report(repo, *, apply=False, codex=None, claude=None):
             checkout = Path.cwd() / checkout
         # Do not resolve aliases before the installed enrollment boundary sees them.
         selected = str(checkout)
-        launcher = str(Path(pwd.getpwuid(os.getuid()).pw_dir) / ".local/bin/relay")
+        launcher = str(account_launcher())
     except (OSError, KeyError):
         result["runtime"] = {"state": "unavailable", "message": "Account or checkout identity is unavailable."}
         _next(result, "runtime", "Restore access to the current checkout and normal OS account, then check again.")
@@ -200,11 +202,12 @@ def setup_report(repo, *, apply=False, codex=None, claude=None):
         result["providers"][client] = {"state": "prepared", "executable": plan["argv"][0],
                                        "version": "not_checked", "plan": plan, "launch_command": command}
         _next(result, client, "When a provider launch is authorized, run this in an interactive terminal and review its displayed invocation.", command)
+    result["first_collaboration_url"] = "https://github.com/SuperDuperDave/agent-relay/blob/main/docs/PEER.md#first-collaboration"
     return result
 
 
 def _display(report):
-    print("Relay is ready for this repository." if report["state"] == "ready" else "Relay setup needs attention.")
+    print("Multithread is ready for this repository." if report["state"] == "ready" else "Multithread setup needs attention.")
     print("Runtime: " + report["runtime"]["state"])
     print("Repository: " + report["repository"]["state"])
     if report["runtime"]["state"] == "verified":
@@ -220,6 +223,9 @@ def _display(report):
     print(report["path_note"])
     if report["launcher"]:
         print("Launcher: " + report["launcher"])
+    if report.get("first_collaboration_url"):
+        print("First collaboration, when you authorize provider use: "
+              + report["first_collaboration_url"])
     for entry in report["next_actions"]:
         print(entry["stage"] + ": " + entry["action"])
         if "command" in entry:
@@ -237,7 +243,7 @@ def _display(report):
 
 
 def setup_main(argv=None):
-    parser = argparse.ArgumentParser(prog="relay setup", description="Check Relay readiness; explicitly enroll with --apply. Providers are never started.")
+    parser = argparse.ArgumentParser(prog="multithread setup", description="Check Multithread readiness; explicitly enroll with --apply. Providers are never started.")
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="chosen Git checkout; default: current directory")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="read-only readiness check (default)")
@@ -254,5 +260,5 @@ def setup_main(argv=None):
             _display(result)
         return 0 if result["state"] == "ready" else 1
     except KeyboardInterrupt:
-        print("relay setup: interrupted; inspect current state before retrying enrollment.", file=sys.stderr)
+        print("multithread setup: interrupted; inspect current state before retrying enrollment.", file=sys.stderr)
         return 130

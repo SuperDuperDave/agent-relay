@@ -1,9 +1,9 @@
 # Try the no-account demo
 
-This is a runnable development preview of Relay's coordination mechanics.
+This is a runnable development preview of Multithread's coordination mechanics.
 The actors are scripts named `codex` and `claude`, not model sessions.
 You do not need provider credentials, a network connection or an existing
-Relay installation. Read the checkout before running its code.
+Multithread installation. Read the checkout before running its code.
 
 ## Run it
 
@@ -33,7 +33,7 @@ offline installed release. Only its new temporary home and temporary workspace
 are writable. The real user home, credentials and project directories are not
 mounted; the source bootstrap and bundle are read-only during installation and
 absent during the workflow. Each phase has a separate network namespace with
-only loopback. It never enables provider hooks or changes your installed Relay.
+only loopback. It never enables provider hooks or changes your installed Multithread.
 Temporary files are removed when the run ends.
 
 ## The story

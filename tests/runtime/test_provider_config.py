@@ -44,8 +44,9 @@ class ProviderConfigTests(unittest.TestCase):
         self.addCleanup(self.fixture.doCleanups)
         self.fixture.setUp()
 
-    def config(self, client, **kwargs):
-        result = self.fixture.command("provider-config", "--client", client, **kwargs)
+    def config(self, client, *, launcher_name=None, **kwargs):
+        selected = ["--launcher-name", launcher_name] if launcher_name is not None else []
+        result = self.fixture.command("provider-config", "--client", client, *selected, **kwargs)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual("", result.stderr)
         value = json.loads(result.stdout)
@@ -57,7 +58,7 @@ class ProviderConfigTests(unittest.TestCase):
         self.assertIs(type(value["schema"]), int)
         self.assertEqual(client, value["provider"])
         self.assertEqual(str(self.fixture.repo), value["repo"])
-        launcher = str(Path(pwd.getpwuid(os.getuid()).pw_dir) / ".local/bin/relay")
+        launcher = str(Path(pwd.getpwuid(os.getuid()).pw_dir) / ".local/bin" / (launcher_name or "relay"))
         self.assertEqual(
             [launcher, "--repo", str(self.fixture.repo), "provider-hook", "--client", client],
             shlex.split(value["hook_command"]))
@@ -105,8 +106,20 @@ class ProviderConfigTests(unittest.TestCase):
     def test_exact_native_shapes_without_provider_lookup_or_execution(self):
         self.fixture.initialize()
         for client in ("codex", "claude"):
-            with self.subTest(client=client):
-                self.config(client, before=_NO_PROVIDER)
+            for name in (None, "relay", "multithread"):
+                with self.subTest(client=client, launcher=name):
+                    before = snapshot(self.fixture.base)
+                    self.config(client, launcher_name=name, before=_NO_PROVIDER)
+                    self.assert_readonly(before)
+
+    def test_command_name_cannot_select_an_arbitrary_executable(self):
+        self.fixture.initialize()
+        before = snapshot(self.fixture.base)
+        for name in ("../multithread", "/tmp/foreign-command", "foreign"):
+            result = self.fixture.command("provider-config", "--client", "claude", "--launcher-name", name)
+            self.assertNotEqual(0, result.returncode)
+            self.assertEqual("", result.stdout)
+            self.assertEqual(before, snapshot(self.fixture.base))
 
     def test_quoted_unicode_and_shell_metacharacter_repository_round_trip(self):
         # DEL is legal in a Git pathname but must be escaped in TOML strings.

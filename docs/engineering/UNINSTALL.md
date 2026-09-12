@@ -1,23 +1,26 @@
 # Installed-code uninstall
 
-This preview supports explicit removal of verified installed Relay code. It is
+This preview supports explicit removal of verified installed Multithread code. It is
 not an account-data purge, provider-config cleanup, or a command to stop running
 processes. Disable only moves the active selector and retains code; uninstall
 actually unlinks the verified code files and removes their empty directories.
 
 ## Operator workflow
 
-Stop Relay work and separately configured invocations first. This command does
+Stop Multithread work and separately configured invocations first. This command does
 not remove hooks, edit provider settings, stop receivers, or terminate commands.
 Keep a separately reviewed source bootstrap and an approved release bundle
-outside the installation: after removing its own command, Relay needs that
+outside the installation: after removing its own command, Multithread needs that
 bootstrap for inspection, retry or reinstall.
+Use the latest reviewed bootstrap to manage a rolled-back installation that
+retains newer layouts or receipts; an older release's manager may not understand
+those objects even though its ordinary ledger commands still run.
 
 With a working installed command:
 
 ```sh
-~/.local/bin/relay runtime uninstall-plan
-~/.local/bin/relay runtime uninstall --expected-plan EXPECTED_PLAN_SHA256
+~/.local/bin/multithread runtime uninstall-plan
+~/.local/bin/multithread runtime uninstall --expected-plan EXPECTED_PLAN_SHA256
 ```
 
 Review the plan's scope, targets, issues and retained_metadata. Supply the exact
@@ -50,7 +53,8 @@ The plan includes all verified releases, not only the active release:
 
 - Installed bootstrap.py, release.json and the closed runtime payload files.
 - Verified launch activation records and deterministic wrappers.
-- The recognized active relay selector and verified retained
+- The verified installation-owned `multithread` alias to the absolute account
+  `relay` path, the recognized active `relay` selector, and verified retained
   .relay-switch-ID / .relay-disabled-ID selectors.
 - Their empty release, launch and payload directories.
 

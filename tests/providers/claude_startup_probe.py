@@ -124,6 +124,7 @@ for path in debug_files:
     assert path.stat().st_size <= 2 * 1024 * 1024
     debug_text += "\n" + path.read_text(errors="replace")
 contexts = []
+brief_markers = ("MULTITHREAD BRIEF v1", "RELAY BRIEF v1")
 decoder = json.JSONDecoder()
 for match in re.finditer(r'\{"hookSpecificOutput"', debug_text):
     try:
@@ -133,7 +134,7 @@ for match in re.finditer(r'\{"hookSpecificOutput"', debug_text):
     output = value.get("hookSpecificOutput", {})
     if output.get("hookEventName") == "SessionStart":
         context = output.get("additionalContext", "")
-        if "RELAY BRIEF v1" in context:
+        if any(marker in context for marker in brief_markers):
             contexts.append(context)
 context = next((text for text in contexts if "last_seq=" + str(starts[0]["seq"]) in text), None)
 if context is not None:
@@ -149,7 +150,7 @@ print(json.dumps({"scope": "actual native Claude -> generated inline public Rela
                   "session_started_events": len(starts), "session_matches_native": True,
                   "hook_context_stdout_observed_in_native_debug": context is not None,
                   "hook_context_bytes": len(context.encode("utf-8")) if context is not None else None,
-                  "debug_context_marker_present": "RELAY BRIEF v1" in debug_text,
+                  "debug_context_marker_present": any(marker in debug_text for marker in brief_markers),
                   "debug_file_count": len(debug_files),
                   "event_counts": kinds, "pending_preserved": True, "claim_preserved": True,
                   "installed_code_and_enrollment_preserved": True, "git_entries_and_foreign_home_preserved": True,
