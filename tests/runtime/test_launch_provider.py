@@ -16,7 +16,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("relay_launch_example", ROOT / "examples/launch_provider.py")
+SPEC = importlib.util.spec_from_file_location("relay_native_provider", ROOT / "src/relay_runtime/provider.py")
 launch = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(launch)
 
@@ -90,7 +90,7 @@ class LaunchProviderTests(unittest.TestCase):
               mock.patch.object(launch.sys, "stdin", terminal),
               mock.patch("builtins.input", return_value=answer, side_effect=input_error) as prompt,
               mock.patch.dict(os.environ, self.environment, clear=True)):
-            status = launch.main(arguments)
+            status = launch.launch_main(arguments)
         return status, output.getvalue(), errors.getvalue(), prompt
 
     def mocked_result(self, plan=None, *, stdout=None, returncode=0):

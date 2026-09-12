@@ -1,5 +1,10 @@
 # Provider hooks — 0.1.0 preview
 
+The newer source preview also packages [native peer calls](PEER.md), which
+return Claude's output to the initiating task, and `relay launch` for interactive
+launches. The v0.1.0 walkthrough and historical evidence below retain their
+manual-notification scope.
+
 Relay supplies a coordination contract and pending-work brief to Codex and
 Claude through their native hooks. The installed `provider-config` command
 generates arguments for one provider launch. A bounded native workflow used
@@ -232,9 +237,9 @@ or duplicate acknowledgement. Finally, wake Codex with the return sequence and
 have it inspect and acknowledge the review. Check the ledger for the linked
 handoffs, acknowledgements and absence of held claims.
 
-These steps use manual notifications and explicit Git operations. Relay supplies
-durable coordination and refreshed context; it does not launch the other provider,
-forward messages, commit files, merge changes or grant tool permissions. If a
+These v0.1.0 steps use manual notifications and explicit Git operations. Their
+hook integration supplies durable coordination and refreshed context; it does
+not launch peers, forward messages, commit files, merge changes or grant tool permissions. If a
 session is interrupted or a command outcome is uncertain, inspect the ledger
 and artifact before continuing. Claims do not expire, and a new session does not
 inherit an old session's ownership.

@@ -18,6 +18,7 @@ PAYLOAD = (
     "relay_core/__init__.py", "relay_core/cli.py", "relay_core/protocol.py",
     "relay_core/store.py", "relay_runtime/__init__.py", "relay_runtime/admission.py",
     "relay_runtime/cli.py", "relay_runtime/confinement.py", "relay_runtime/enrollment.py",
+    "relay_runtime/provider.py",
 )
 CLOSED_FILES = (
     "src/relay.py", "src/relay_bootstrap.py", *("src/" + name for name in PAYLOAD),

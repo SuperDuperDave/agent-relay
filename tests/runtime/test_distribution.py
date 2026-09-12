@@ -16,6 +16,15 @@ sys.path.insert(0, str(SOURCE))
 import relay_bootstrap as subject
 
 
+# A self-contained legacy release shape; source archives need no Git history.
+# Its synthetic bootstrap is deliberately never executed by management tests.
+LEGACY_FILES = {
+    "relay_core/__init__.py", "relay_core/cli.py", "relay_core/protocol.py",
+    "relay_core/store.py", "relay_runtime/__init__.py", "relay_runtime/enrollment.py",
+    "relay_runtime/admission.py", "relay_runtime/confinement.py", "relay_runtime/cli.py",
+}
+
+
 class DistributionTests(unittest.TestCase):
     def setUp(self):
         previous = os.umask(0o077)
@@ -31,6 +40,27 @@ class DistributionTests(unittest.TestCase):
     def install(self, expected=None):
         return self.distribution.install(self.release_path, self.release.digest,
                                          expected_activation=expected)
+
+    def fixture_release(self, files, name="legacy-release"):
+        path = self.base / name
+        path.mkdir()
+        bootstrap = b"raise AssertionError('synthetic legacy bootstrap must not execute')\n"
+        (path / "bootstrap.py").write_bytes(bootstrap)
+        members = {}
+        for member in sorted(files):
+            source = SOURCE / member
+            body = source.read_bytes() if source.exists() else b"# synthetic unknown module\n"
+            target = path / "payload" / member
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(body)
+            members[member] = {"sha256": hashlib.sha256(body).hexdigest(), "size": len(body)}
+        record = json.dumps({
+            "format": 1, "launcher_protocol": 1, "version": "0.1.0-legacy-fixture",
+            "bootstrap": {"sha256": hashlib.sha256(bootstrap).hexdigest(), "size": len(bootstrap)},
+            "runtime": {"format": 1, "members": members},
+        }, sort_keys=True, separators=(",", ":")).encode()
+        (path / "release.json").write_bytes(record)
+        return path, hashlib.sha256(record).hexdigest()
 
     def test_bundle_is_closed_bootstrap_and_runtime_pair(self):
         self.assertEqual({"bootstrap.py", "release.json", "payload"},
@@ -48,7 +78,7 @@ class DistributionTests(unittest.TestCase):
         self.assertFalse((self.base / "account").exists())
 
     def test_unapproved_or_changed_release_refuses_before_destination_write(self):
-        for name in ("bootstrap.py", "payload/relay_core/protocol.py"):
+        for name in ("bootstrap.py", "payload/relay_core/protocol.py", "payload/relay_runtime/provider.py"):
             with self.subTest(name=name):
                 path = self.release_path / name
                 original = path.read_bytes()
@@ -128,6 +158,96 @@ class DistributionTests(unittest.TestCase):
                                          expected_activation=new["activation_id"])["activation"]
         self.assertEqual(self.release.digest, old["release_id"])
         self.assertNotEqual(first["activation_id"], old["activation_id"])
+
+    def test_legacy_profile_upgrade_rollback_status_and_uninstall(self):
+        legacy_path, legacy_digest = self.fixture_release(LEGACY_FILES)
+        first = self.distribution.install(legacy_path, legacy_digest,
+                                          expected_activation=None)["activation"]
+        self.assertEqual(legacy_digest, self.distribution.status()["activation"]["release_id"])
+        plan = self.distribution.plan(self.release_path, self.release.digest)
+        self.assertEqual(first["activation_id"], plan["expected_activation"])
+        current = self.install(expected=plan["expected_activation"])["activation"]
+        self.assertEqual(self.release.digest, self.distribution.status()["activation"]["release_id"])
+        inspected = self.distribution.inspect()
+        self.assertEqual([], inspected["issues"])
+        self.assertEqual({legacy_digest, self.release.digest},
+                         {row["release_id"] for row in inspected["releases"] if row["state"] == "verified"})
+        rolled_back = self.distribution.activate(legacy_digest,
+                                                 expected_activation=current["activation_id"])["activation"]
+        self.assertEqual(legacy_digest, rolled_back["release_id"])
+        self.assertEqual(rolled_back, self.distribution.status()["activation"])
+        self.assertEqual([], self.distribution.inspect()["issues"])
+        preserved = self.base / "account" / "retained-state"
+        preserved.write_bytes(b"synthetic coordination state outside installed code\n")
+        uninstall = self.distribution.uninstall_plan()
+        self.assertTrue(uninstall["can_uninstall"], uninstall)
+        paths = {row["path"] for row in uninstall["targets"]}
+        self.assertIn("releases/" + legacy_digest + "/payload/relay_runtime/cli.py", paths)
+        self.assertIn("releases/" + self.release.digest + "/payload/relay_runtime/provider.py", paths)
+        result = self.distribution.uninstall(expected_plan=uninstall["expected_plan"])
+        self.assertTrue(result["uninstalled"], result)
+        self.assertFalse(self.distribution.status()["installed"])
+        self.assertFalse((self.distribution.root / "releases").exists())
+        self.assertEqual(b"synthetic coordination state outside installed code\n", preserved.read_bytes())
+
+    def test_unknown_and_partial_release_profiles_refuse_before_writes(self):
+        profiles = (
+            LEGACY_FILES - {"relay_core/protocol.py"},
+            LEGACY_FILES | {"relay_runtime/unknown.py"},
+            (LEGACY_FILES - {"relay_runtime/enrollment.py"}) | {"relay_runtime/provider.py"},
+        )
+        for index, files in enumerate(profiles):
+            with self.subTest(files=sorted(files)):
+                path, digest = self.fixture_release(files, "unsupported-profile-" + str(index))
+                with self.assertRaises(subject.BootstrapError):
+                    self.distribution.install(path, digest, expected_activation=None)
+                self.assertFalse((self.base / "account").exists())
+
+    def test_legacy_profile_rejects_unlisted_and_changed_members(self):
+        path, digest = self.fixture_release(LEGACY_FILES)
+        extra = path / "payload/relay_runtime/provider.py"
+        extra.write_bytes(b"# unlisted provider module\n")
+        with self.assertRaises(subject.BootstrapError):
+            self.distribution.install(path, digest, expected_activation=None)
+        self.assertFalse((self.base / "account").exists())
+        extra.unlink()
+        member = path / "payload/relay_runtime/cli.py"
+        member.write_bytes(member.read_bytes() + b"\n# changed legacy bytes\n")
+        with self.assertRaises(subject.BootstrapError):
+            self.distribution.install(path, digest, expected_activation=None)
+        self.assertFalse((self.base / "account").exists())
+
+    def test_legacy_management_does_not_expand_build_or_generation_execution(self):
+        path, digest = self.fixture_release(LEGACY_FILES)
+        legacy = subject.read_release(path, digest)
+        self.assertEqual(LEGACY_FILES, set(legacy.bodies))
+        with self.assertRaises(subject.BootstrapError):
+            subject.manifest_for(legacy.bodies)
+        with self.assertRaises(subject.BootstrapError):
+            subject._release_record(legacy.version, legacy.bootstrap, legacy.bodies)
+        generation = subject.Installation(self.base / "legacy-generation")
+        with self.assertRaises(subject.BootstrapError):
+            generation.install(path / "payload", legacy.runtime_manifest)
+        self.assertFalse(generation.root.exists())
+        script = """
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location('bootstrap_fixture', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+release = module.read_release(sys.argv[2], sys.argv[3])
+runtime = module.VerifiedRuntime(release.digest, pathlib.Path(sys.argv[2]) / 'payload', release.bodies)
+try:
+    runtime.install_importer()
+except module.BootstrapError as exc:
+    assert 'current closed module set' in str(exc), str(exc)
+else:
+    raise AssertionError('legacy closure was accepted for current execution')
+"""
+        result = subprocess.run(["/usr/bin/python3", "-I", "-S", "-B", "-c", script,
+                                 str(SOURCE / "relay_bootstrap.py"), str(path), digest],
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_concurrent_installers_have_one_activation_winner(self):
         def attempt(_):
