@@ -1,16 +1,22 @@
-# Offline installation — 0.1.0 preview
+# Offline installation and recovery
 
-Relay 0.1.0 is [MIT licensed](../../LICENSE). The public source is
+Relay is [MIT licensed](../../LICENSE). The public source is
 [SuperDuperDave/agent-relay](https://github.com/SuperDuperDave/agent-relay). Choose the release-archive
 or source-build route below. [Hosted checks](../CI.md#hosted-result) and the
 [bounded native workflow](../PROVIDERS.md#bounded-native-workflow) have separate
-scope. Consult [v0.1.0](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.1.0) for final package
-and anonymous-onboarding results.
+scope. Consult [v0.2.0](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.2.0) for final package
+and downloaded-package results.
 
 Use an ordinary x86-64 Linux/WSL account with Python 3.12 and Git. The installed
 worker also requires Landlock ABI3+, procfs and supported filesystem birth times.
 The exercised profile is WSL2 on ext4; see [support](../SUPPORT.md) for exact
 versions and the additional namespace prerequisites for the tests and demo.
+
+For the shorter online setup and explicit update route, use [SETUP](../SETUP.md).
+The release installer downloads and verifies a pinned bundle, then invokes this
+offline bootstrap. Its confirmation or explicit --yes approves the displayed
+publisher selection and optional repository enrollment. The bootstrap itself
+retains the offline behavior below.
 
 ## Trust the source before running the installer
 
@@ -28,8 +34,8 @@ edits PATH/shell configuration, enrolls a repository or enables provider hooks.
 
 ## Install from the release archive
 
-Use this route when the [v0.1.0 release](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.1.0) lists both
-`relay-0.1.0-linux-x86_64.tar.gz` and its `.sha256` file under Assets.
+Use this route when the [v0.2.0 release](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.2.0) lists both
+`relay-0.2.0-linux-x86_64.tar.gz` and its `.sha256` file under Assets.
 Source publication and green CI alone do not establish a downloaded-package
 check; read the release's package and onboarding results first.
 
@@ -38,18 +44,18 @@ Download both files into a new empty directory. For example, with curl installed
 ```sh
 mkdir relay-download
 cd relay-download
-curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.1.0/relay-0.1.0-linux-x86_64.tar.gz
-curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.1.0/relay-0.1.0-linux-x86_64.tar.gz.sha256
-sha256sum --check relay-0.1.0-linux-x86_64.tar.gz.sha256
-tar -tvzf relay-0.1.0-linux-x86_64.tar.gz
+curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.2.0/relay-0.2.0-linux-x86_64.tar.gz
+curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.2.0/relay-0.2.0-linux-x86_64.tar.gz.sha256
+sha256sum --check relay-0.2.0-linux-x86_64.tar.gz.sha256
+tar -tvzf relay-0.2.0-linux-x86_64.tar.gz
 ```
 
-Review the listed files under the single `relay-0.1.0/` root, then extract and
+Review the listed files under the single `relay-0.2.0/` root, then extract and
 check the individual file hashes:
 
 ```sh
-tar -xzf relay-0.1.0-linux-x86_64.tar.gz
-cd relay-0.1.0
+tar -xzf relay-0.2.0-linux-x86_64.tar.gz
+cd relay-0.2.0
 sha256sum --check SHA256SUMS
 ```
 
@@ -83,7 +89,7 @@ From a reviewed source checkout:
 
 ```sh
 /usr/bin/python3 -I -S -B src/relay_bootstrap.py build-release \
-  --output dist/relay-preview --version 0.1.0
+  --output dist/relay-preview --version 0.2.0
 ```
 
 The destination must not already exist. The builder includes only bootstrap.py,
@@ -171,11 +177,25 @@ providers, grant their permissions or approve native hook trust.
 
 ## Upgrades and explicit rollback
 
-When upgrading v0.1.0 to a source-built bundle containing native peer support,
+The installed `relay update` command reviews one public release and asks before
+running its incoming installer. `--check` / `--json` only observe; the JSON plan
+supplies an exact `apply_argv` for an already-authorized agent. There are no
+background checks or automatic activations. Network failure leaves availability
+unknown.
+
+This release does not change ledger/schema semantics. Already-dispatched
+workers retain loaded code; subsequent stable-launcher calls use the new
+selection. Commands crossing an activation may refuse, and direct old wrapper
+pins become stale. Updates do not stop provider processes or automatically
+restart them. A future incompatible ledger/launcher change needs its own
+explicit migration or quiescence requirements; this updater does not promise
+arbitrary future compatibility.
+
+When upgrading v0.1.0 or a peer-preview bundle to v0.2.0,
 use the **incoming reviewed bundle's `bootstrap.py`** for `plan` and `install`.
-Its reader recognizes exactly the original and expanded closed module sets;
-the older bootstrap cannot read the expanded bundle. The source preview adds
-the verified provider adapter without relaxing unknown-member refusal.
+Its reader recognizes exactly the original, peer-preview and current closed module sets;
+the older bootstrap cannot read the expanded bundle. This release adds setup/update
+orchestration without relaxing unknown-member refusal.
 
 Rollback can reactivate the retained old release and its matching bootstrap.
 Afterward, use the newer reviewed bootstrap if installation inspection or

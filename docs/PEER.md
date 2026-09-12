@@ -1,9 +1,9 @@
 # Call Claude and continue your task
 
-The source preview adds `relay peer`: a coding agent calls Claude Code, receives
+Relay v0.2.0 includes `relay peer`: a coding agent calls Claude Code, receives
 its answer as the command result, and continues the same task. There is no second
-application or message-forwarding service. This command is included in bundles
-built from this source; **the published v0.1.0 archive does not contain it**.
+application or message-forwarding service. Install the current release through
+the [setup guide](SETUP.md); the historical v0.1.0 archive does not contain it.
 
 Use it when a second perspective is worth the extra provider usage. The first
 adapter calls Claude; it does not start a replacement Codex task, control an
@@ -12,8 +12,7 @@ already-open desktop window, or wake an independently idle session.
 ## Before calling
 
 Use a functioning provider environment and an enrolled checkout. Follow
-[installation](engineering/INSTALLATION.md#build-a-local-preview-bundle) and
-[setup](SETUP.md). A source-built installation also includes `relay launch`
+[setup](SETUP.md). The installation also includes `relay launch`
 for interactive Codex/Claude launches; `relay launch claude --json` only prepares
 that interactive launch plan.
 

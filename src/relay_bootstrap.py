@@ -35,6 +35,8 @@ PAYLOAD_MODULES = {
     "relay_runtime.confinement": "relay_runtime/confinement.py",
     "relay_runtime.cli": "relay_runtime/cli.py",
     "relay_runtime.provider": "relay_runtime/provider.py",
+    "relay_runtime.setup": "relay_runtime/setup.py",
+    "relay_runtime.update": "relay_runtime/update.py",
 }
 PAYLOAD_FILES = frozenset(PAYLOAD_MODULES.values())
 # Release management can inspect the published nine-module profile without
@@ -44,7 +46,8 @@ _LEGACY_PAYLOAD_FILES = frozenset({
     "relay_core/store.py", "relay_runtime/__init__.py", "relay_runtime/enrollment.py",
     "relay_runtime/admission.py", "relay_runtime/confinement.py", "relay_runtime/cli.py",
 })
-_RELEASE_PAYLOAD_SETS = (_LEGACY_PAYLOAD_FILES, PAYLOAD_FILES)
+_PEER_PAYLOAD_FILES = _LEGACY_PAYLOAD_FILES | {"relay_runtime/provider.py"}
+_RELEASE_PAYLOAD_SETS = (_LEGACY_PAYLOAD_FILES, _PEER_PAYLOAD_FILES, PAYLOAD_FILES)
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
 _ID = re.compile(r"[0-9a-f]{32}\Z")
 _MAX_MEMBER = 1024 * 1024

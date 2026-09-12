@@ -1,9 +1,9 @@
 # Support and troubleshooting
 
-Relay 0.1.0 is an [MIT-licensed](../LICENSE) preview exercised on the Linux/WSL2
+Relay is an [MIT-licensed](../LICENSE) preview exercised on the Linux/WSL2
 profile below. Installation, scripted demonstration and bounded native provider
 work have separate evidence. [Hosted checks](CI.md#hosted-result) record the
-public commit and runner; consult [v0.1.0](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.1.0)
+public commit and runner; consult the [selected release](https://github.com/SuperDuperDave/agent-relay/releases)
 for package and onboarding results.
 
 ## Exercised profile
@@ -47,6 +47,13 @@ access and reviewed permissions; the historical credential-free probes retain
 their narrower scope.
 
 ## Diagnose without changing live configuration
+
+Start with `~/.local/bin/relay setup --check --repo /absolute/checkout` for a
+read-only runtime/repository check and available provider launch plans. Add
+`--json` for structured stages and exact next commands. Provider authentication,
+hook delivery and tool execution remain separately unobserved. Use
+`~/.local/bin/relay update --check` for an explicit online release check;
+network failure means unavailable information, not an up-to-date installation.
 
 For a first look, run the [no-account demo](DEMO.md) on the supported profile.
 The [strict suite](CI.md) checks the full local acceptance contract. Both use

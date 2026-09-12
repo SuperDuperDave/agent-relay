@@ -45,6 +45,8 @@
     "src/relay_runtime/confinement.py",
     "src/relay_runtime/enrollment.py",
     "src/relay_runtime/provider.py",
+    "src/relay_runtime/setup.py",
+    "src/relay_runtime/update.py",
     "tests/core/test_relay.py",
     "tests/core/test_relay_channel_pending.py",
     "tests/core/test_relay_decisions.py",
@@ -60,6 +62,7 @@
     "tests/runtime/test_installed_adversarial.py",
     "tests/runtime/test_launch_provider.py",
     "tests/runtime/test_null_sink.py",
+    "tests/runtime/test_package_release.py",
     "tests/runtime/test_peer.py",
     "tests/runtime/test_provider_config.py",
     "tests/runtime/test_provider_hook.py",
@@ -68,16 +71,33 @@
     "tests/runtime/test_public_profile.py",
     "tests/runtime/test_public_provider.py",
     "tests/runtime/test_public_rebind.py",
+    "tests/runtime/test_public_setup.py",
     "tests/runtime/test_public_uninstall.py",
+    "tests/runtime/test_public_update.py",
     "tests/runtime/test_publication.py",
     "tests/runtime/test_rebind.py",
     "tests/runtime/test_recovery.py",
+    "tests/runtime/test_setup.py",
     "tests/runtime/test_suite_runner.py",
     "tests/runtime/test_uninstall.py",
+    "tests/runtime/test_update.py",
+    "tools/package_release.py",
     "tools/publication-manifest.json",
     "tools/publication_audit.py"
   ],
   "exceptions": [
+    {
+      "path": "tests/runtime/test_public_setup.py",
+      "rule": "email-address",
+      "line_sha256": "d74f77a486baa8959585b4a5a91258d9fb621b0f84b37937f5ced9a0bc3348a6",
+      "reason": "synthetic-test-fixture"
+    },
+    {
+      "path": "tests/runtime/test_update.py",
+      "rule": "email-address",
+      "line_sha256": "2085956cbbeed42a1066719e60de8cce977dbaf7b8e2eccd375f559339b5c935",
+      "reason": "synthetic-test-fixture"
+    },
     {
       "path": "tests/runtime/test_public_rebind.py",
       "rule": "email-address",
