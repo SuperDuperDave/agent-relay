@@ -1,10 +1,15 @@
-# Support and troubleshooting
+# Multithread support and troubleshooting
 
-Relay is an [MIT-licensed](../LICENSE) preview exercised on the Linux/WSL2
-profile below. Installation, scripted demonstration and bounded native provider
-work have separate evidence. [Hosted checks](CI.md#hosted-result) record the
-public commit and runner; consult the [selected release](https://github.com/SuperDuperDave/agent-relay/releases)
-for package and onboarding results.
+Multithread (formerly Agent Relay) is an [MIT-licensed](../LICENSE) preview
+exercised on the Linux/WSL2 profile below. Installation, scripted demonstration
+and bounded native provider work have separate evidence.
+[Hosted checks](CI.md#hosted-result) record the public commit and runner; consult
+the [selected release](https://github.com/SuperDuperDave/agent-relay/releases) for
+package and onboarding results.
+
+The `relay` command, release filenames and repository URLs remain unchanged.
+The [project page](https://mainthread.ai/work/relay/) introduces Multithread;
+the diagnostics and historical evidence below retain the Relay runtime name.
 
 ## Exercised profile
 

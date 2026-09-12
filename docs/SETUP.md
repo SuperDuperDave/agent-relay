@@ -1,9 +1,13 @@
-# Set up Agent Relay
+# Set up Multithread
 
 Install the **v0.2.0 preview**, enroll your Git repository and prepare native
 Codex/Claude collaboration from one entry point. The package includes setup,
 interactive launch, Claude peer calls and updates; no Relay source checkout is
 needed for these commands.
+
+Multithread was previously called **Agent Relay**. The `relay` command, release
+filenames and repository URLs remain unchanged, including in the setup prompt
+below. See the [project page](https://mainthread.ai/work/relay/) for an introduction.
 
 Use an ordinary x86-64 Linux account with Python 3.12 at `/usr/bin/python3`, Git
 at `/usr/bin/git`, Landlock ABI3+, procfs and supported filesystem birth times.

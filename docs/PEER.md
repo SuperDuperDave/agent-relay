@@ -1,9 +1,13 @@
 # Call Claude and continue your task
 
-Relay v0.2.0 includes `relay peer`: a coding agent calls Claude Code, receives
-its answer as the command result, and continues the same task. There is no second
-application or message-forwarding service. Install the current release through
-the [setup guide](SETUP.md); the historical v0.1.0 archive does not contain it.
+Multithread (formerly Agent Relay) v0.2.0 includes `relay peer`: a coding agent
+calls Claude Code, receives its answer as the command result, and continues the
+same task. There is no second application or message-forwarding service. Install
+the current release through the [setup guide](SETUP.md); the historical v0.1.0
+archive does not contain it.
+
+The installed command remains `relay`. See the
+[project page](https://mainthread.ai/work/relay/) for the Multithread introduction.
 
 Use it when a second perspective is worth the extra provider usage. The first
 adapter calls Claude; it does not start a replacement Codex task, control an
