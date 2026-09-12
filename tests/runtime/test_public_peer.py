@@ -64,7 +64,80 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": False,
 """
 
 
-_PEER = profile._COMMON + "\nprovider_source = " + repr(_FAKE_PROVIDER) + r"""
+_STREAM_PROVIDER = r'''
+import json, os, pathlib, shlex, subprocess, sys, tomllib, uuid
+assert os.getcwd() == '/tmp/project'
+assert os.environ['HOME'] == '/tmp/foreign-home'
+assert not pathlib.Path('/source').exists() and not pathlib.Path('/bundle').exists()
+args = sys.argv[1:]
+client = 'codex' if 'app-server' in args else 'claude'
+if client == 'codex':
+    hooks = {}
+    for i, arg in enumerate(args):
+        if arg == '-c': hooks.update(tomllib.loads(args[i+1])['hooks'])
+    session, turn = 'native-codex-fixture', 'native-turn-fixture'
+else:
+    assert args[args.index('--output-format')+1] == 'stream-json'
+    assert args[args.index('--input-format')+1] == 'stream-json'
+    assert '--replay-user-messages' in args and '--verbose' in args
+    hooks = json.loads(args[args.index('--settings')+1])['hooks']
+    session = args[args.index('--session-id')+1]
+    turn = 'native-claude-turn-fixture'
+
+def hook(event):
+    handler = hooks[event][0]['hooks'][0]
+    assert handler['type'] == 'command' and handler['timeout'] == 3
+    command = shlex.split(handler['command'])
+    assert command[-3:] == ['provider-hook', '--client', client]
+    result = subprocess.run(command, input=json.dumps({'hook_event_name': event,
+        'session_id': session, 'turn_id': turn, 'prompt_id': client + '-' + event}),
+        text=True, capture_output=True, timeout=10)
+    assert result.returncode == 0 and not result.stderr, result
+    if event in ('SessionStart', 'UserPromptSubmit'):
+        context = json.loads(result.stdout)['hookSpecificOutput']['additionalContext']
+        assert 'RELAY AGENT CONTRACT v1' in context and session in context
+
+def emit(value): print(json.dumps(value), flush=True)
+
+if client == 'claude':
+    task = json.loads(sys.stdin.buffer.readline())
+    assert task['session_id'] == session
+    hook('SessionStart')
+    emit({'type':'system', 'subtype':'init', 'session_id':session, 'cwd':os.getcwd()})
+    hook('UserPromptSubmit')
+    hook('Stop'); hook('SessionEnd')
+    emit({'type':'result', 'subtype':'success', 'is_error':False, 'num_turns':1,
+          'session_id':session, 'uuid':str(uuid.uuid4()), 'result':'Installed Claude stream answer',
+          'user_message_uuid':task['uuid'], 'user_message_uuids':[task['uuid']]})
+else:
+    for line in sys.stdin:
+        message = json.loads(line)
+        method = message['method']
+        if method == 'initialized': continue
+        if method == 'initialize': result = {}
+        elif method == 'hooks/list':
+            result = {'data':[{'cwd':os.getcwd(), 'hooks':[
+                {'eventName':name[0].lower()+name[1:], 'handlerType':'command',
+                 'command':value[0]['hooks'][0]['command'], 'source':'sessionFlags',
+                 'trustStatus':'trusted', 'enabled':True, 'timeoutSec':3, 'matcher':None, 'async':False}
+                for name,value in hooks.items()]}]}
+        elif method == 'thread/start':
+            hook('SessionStart')
+            result = {'thread':{'id':session, 'cwd':os.getcwd(), 'turns':[]}, 'cwd':os.getcwd()}
+        elif method == 'turn/start':
+            hook('UserPromptSubmit')
+            emit({'id':message['id'], 'result':{'turn':{'id':turn, 'status':'inProgress', 'items':[]}}})
+            hook('Stop'); hook('SessionEnd')
+            emit({'method':'turn/completed', 'params':{'threadId':session, 'turn':{
+                'id':turn, 'status':'completed', 'error':None, 'items':[{'type':'agentMessage',
+                'id':'answer', 'phase':'final_answer', 'text':'Installed Codex answer'}]}}})
+            continue
+        else: raise AssertionError(method)
+        emit({'id':message['id'], 'result':result})
+'''
+
+
+_PEER = profile._COMMON + "\nprovider_source = " + repr(_FAKE_PROVIDER) + "\nstream_source = " + repr(_STREAM_PROVIDER) + r"""
 assert not pathlib.Path("/source").exists() and not pathlib.Path("/bundle").exists()
 base = [str(launcher), "--repo", str(project), "--json"]
 git_env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null",
@@ -146,12 +219,38 @@ assert call(base + ["doctor"])["ok"]
 assert snapshot(settings) == before_settings and snapshot(foreign) == before_foreign
 assert snapshot(project / ".git/hooks") == before_hooks
 assert snapshot(home / ".local/share/relay/enrollments") == before_registry
+pathlib.Path('/tmp/fake-stream.py').write_text(stream_source)
+stream_provider = pathlib.Path('/tmp/fake-stream')
+stream_provider.write_text('#!/bin/sh\nexec /usr/bin/python3 -I -S -B /tmp/fake-stream.py "$@"\n')
+stream_provider.chmod(0o700)
+for client in ('codex', 'claude'):
+    directory = pathlib.Path('/tmp/stream-' + client)
+    result = subprocess.run(base + ['peer', client, '--provider', str(stream_provider),
+        '--task-file', str(task_file), '--output-dir', str(directory), '--timeout', '20',
+        *(['--live-input'] if client == 'claude' else [])],
+        cwd=project, text=True, capture_output=True, timeout=30)
+    assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+    answer = json.loads(result.stdout)
+    assert answer['state'] == 'returned' and answer['needs_attention'] is False, answer
+    assert answer['workflow_completion'] == answer['relay_acknowledgement'] == 'not_checked'
+    target = call([str(launcher), 'peer', 'control', 'status', '--call-dir', str(directory), '--json'])
+    assert target['state'] == 'closed' and target['target']['session_id'] == answer['session_id']
+    assert target['input_mode'] == ('active_turn' if client == 'codex' else 'session')
+    current = call(base + ['events'])
+    assert [row['kind'] for row in current[-3:]] == ['session.started','turn.completed','session.ended']
+    assert all(row['session'] == answer['session_id'] for row in current[-3:])
+    if client == 'codex': assert answer['hook_readiness']['state'] == 'ready'
+    else: assert answer['native_input'][0]['consumption'] == 'consumed'
+assert len(call(base + ['events'])) == 11
+assert call(base + ['status'])['active_claims'][0]['claim_id'] == claim['claim_id']
+assert snapshot(settings) == before_settings and snapshot(foreign) == before_foreign
 print(json.dumps({"installed_peer": True, "source_absent": True, "launch_plan_only": True,
                   "exact_task_bytes": True, "exact_peer_identity": True,
-                  "public_hooks_executed": 4, "lifecycle_events": 3,
+                  "public_hooks_executed": 12, "lifecycle_events": 9,
                   "pending_handoff_preserved": True, "active_claim_preserved": True,
                   "workflow_completion_inferred": False, "provider_settings_unchanged": True,
-                  "fake_provider_calls": 1, "real_provider_calls": 0}))
+                  "fake_provider_calls": 3, "real_provider_calls": 0,
+                  "installed_codex_and_claude_streaming": True, "installed_control_status": True}))
 """
 
 
@@ -172,8 +271,9 @@ class PublicPeerTests(unittest.TestCase):
         self.assertEqual({
             "installed_peer": True, "source_absent": True, "launch_plan_only": True,
             "exact_task_bytes": True, "exact_peer_identity": True,
-            "public_hooks_executed": 4, "lifecycle_events": 3,
+            "public_hooks_executed": 12, "lifecycle_events": 9,
             "pending_handoff_preserved": True, "active_claim_preserved": True,
             "workflow_completion_inferred": False, "provider_settings_unchanged": True,
-            "fake_provider_calls": 1, "real_provider_calls": 0,
+            "fake_provider_calls": 3, "real_provider_calls": 0,
+            "installed_codex_and_claude_streaming": True, "installed_control_status": True,
         }, result)

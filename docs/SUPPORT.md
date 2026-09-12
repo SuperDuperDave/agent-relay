@@ -51,6 +51,13 @@ instructions and controller Git commits. Trying that workflow requires your own 
 access and reviewed permissions; the historical credential-free probes retain
 their narrower scope.
 
+The v0.3 source adds Codex peer calls and live input. Its
+[source-entry observations and limitations](PEER.md#coordination-and-verification-scope)
+use Codex 0.153.4 and Claude Code 2.1.269 on the existing developer profile.
+They include native artifacts from interrupted calls and do not establish
+installed-native v0.3 support. The earlier v0.2.0 release retains its
+separate installed Claude call/return and exact-session resume evidence.
+
 ## Diagnose without changing live configuration
 
 Start with `~/.local/bin/relay setup --check --repo /absolute/checkout` for a
@@ -78,6 +85,8 @@ status requires the separately [initialized repository](engineering/INSTALLATION
 | Interrupted rebind or inconsistent transition history | Preserve retained records. Only a valid unfinished transition to its exact pinned target is retryable; malformed, conflicting or incomplete history remains blocked without pruning. |
 | Unknown relay command, changed selector or uncertain install | Preserve existing files and inspect using a separately reviewed bootstrap. Use fresh exact observations, not deletion or blind retry. |
 | Provider login or hook-trust failure | This is distinct from SSH connectivity and ledger installation. The no-account tests cannot establish provider authentication or trusted hook execution. |
+| Peer input accepted or consumed, but the call needs attention | Input receipts and task completion are separate. Inspect the call result, retained native observations and actual artifacts before a deliberate follow-up; see [peer results](PEER.md#read-the-result-before-continuing). |
+| Streaming stdout limit exceeded | Streaming calls retain only a bounded prefix, close native input and clean up their owned process. A previously observed answer can survive with `needs_attention`; later output is unavailable. See [capture limits](PEER.md#read-the-result-before-continuing). |
 
 For a damaged launcher, follow [installation recovery](engineering/INSTALLATION.md).
 For removal, follow [verified code uninstall](engineering/UNINSTALL.md).

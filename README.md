@@ -19,17 +19,25 @@ using `relay`; release filenames and the
 The guides retain Relay where they describe that runtime and its recorded
 evidence.
 
-- Call Claude through your existing provider installation and sign-in.
+- Call Claude or Codex through your existing provider installations and sign-ins,
+  and send updates while a peer is running with v0.3.
 - Claim shared resources with exact ownership that survives interrupted sessions.
 - Hand off an immutable Git commit and keep it pending until acknowledged.
 - Recover pending work after a restart; notifications and reads never consume it.
 
-**0.2.0 preview.** Includes installed `relay setup`, `relay launch`,
-`relay peer claude` and `relay update` commands. Installed native call/return and
-exact-session resume were exercised on an existing Linux/WSL2 developer profile.
-See [native peer calls and verification scope](docs/PEER.md) and
-[hosted checks](docs/CI.md). These observations do not establish fresh-account
-onboarding or broader platform support.
+**v0.3 source preview.** Adds Codex peer calls and resume
+of an exact native thread, plus input to running peers. See the
+[commands and native verification scope](docs/PEER.md), including
+the retained interrupted calls and their separately observed artifacts.
+
+The installer below selects the published release, whose version and package
+results should be reviewed before installation. The earlier v0.2.0 archive
+includes setup, launch, Claude peer calls and updates; Codex peer calls and live
+input require v0.3 or the reviewed source entry. Installed Claude call/return and
+exact-session resume have separate v0.2 evidence on an existing Linux/WSL2
+developer profile. [Hosted checks](docs/CI.md) retain their named revisions.
+These observations do not establish fresh-account onboarding or broader
+platform support.
 
 [MIT licensed](LICENSE), copyright (c) 2026 David Jones. Created by David Jones
 with AI assistance: Codex contributed implementation, testing and release work;
@@ -85,10 +93,12 @@ about intent and capacity, with a ceiling rather than a quota. They are not CLI
 commands or a built-in scheduler; execution depends on available tools, supported
 providers and authorized use.
 
-Follow [Call Claude and continue your task](docs/PEER.md) for the automatic
-call/return workflow, task scope, results and exact-session follow-up. It uses
-Claude's normal environment and permissions. Existing subscription sign-in can
-be used; the provider's configuration determines the billing path.
+Follow [Call another native provider and continue your task](docs/PEER.md) for
+task scope, results and exact-session follow-up. The guide distinguishes the
+v0.2 Claude call/return command from v0.3 Codex calls and live input.
+Calls use the provider's normal environment and permissions. Existing
+subscription sign-in can be used; provider configuration determines the billing
+path.
 
 To start an interactive Codex or Claude session with Relay hooks, use the exact
 launch command printed by setup, or:

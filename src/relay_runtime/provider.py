@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Native provider integration outside the confined ledger worker.
 
-Launch preserves interactive provider behavior. Peer makes one bounded Claude
-print call and returns its result; it never infers ledger acknowledgement or
+Launch preserves interactive provider behavior. Peer makes one bounded native
+call and returns its result; it never infers ledger acknowledgement or
 workflow completion. Provider configuration comes from the installed worker.
 """
 
@@ -74,7 +74,7 @@ def executable(value, name):
 
 def prepare(client, repo, relay, provider):
     if platform.system() != "Linux" or platform.machine() != "x86_64":
-        raise LaunchError("Relay v0.1.0 requires a supported x86-64 Linux environment; see docs/SUPPORT.md.")
+        raise LaunchError("This Relay release requires a supported x86-64 Linux environment; see docs/SUPPORT.md.")
     # Relay must see the supplied components before any normalization: resolving
     # an alias here would erase a symlink its enrollment boundary should refuse.
     checkout = Path(repo)
@@ -181,6 +181,13 @@ def _session(value):
     return value
 
 
+def _native_identity(value):
+    if not isinstance(value, str) or not 0 < len(value) <= 256 or any(
+            ord(character) < 32 or ord(character) == 127 for character in value):
+        raise argparse.ArgumentTypeError("use the exact native identity returned by the previous call")
+    return value
+
+
 def _positive(value):
     number = int(value)
     if not 1 <= number <= 3600:
@@ -220,7 +227,35 @@ def _record(directory, name, value):
         os.fsync(stream.fileno())
 
 
-def _stop(process):
+def _drain(observer):
+    from .peer_control import ControlError
+    try:
+        return observer.drain()
+    except (ControlError, OSError):
+        # An unavailable receipt must not prevent termination of our process.
+        # Freeze interpretation; retain whatever raw output can still be read.
+        observer.interpret = False
+        observer.envelope.update(needs_attention=True,
+                                 evidence_recording="Native cleanup or input receipt observation is unavailable; inspect retained evidence.")
+        return False
+
+
+def _wait(process, timeout, observer=None):
+    if observer is None:
+        return process.wait(timeout=timeout)
+    deadline = time.monotonic() + timeout
+    while True:
+        progressed = _drain(observer)
+        if process.poll() is not None and (observer.eof or observer.truncated):
+            return process.returncode
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(process.args, timeout)
+        if not progressed:
+            time.sleep(min(0.01, remaining))
+
+
+def _stop(process, observer=None):
     # This call owns this process group only. Give the provider its normal
     # SIGTERM cleanup before escalation; never touch another native session.
     try:
@@ -228,7 +263,7 @@ def _stop(process):
     except ProcessLookupError:
         pass
     try:
-        process.wait(timeout=5)
+        _wait(process, 5, observer)
     except subprocess.TimeoutExpired:
         pass
     # Descendants can outlive the leader; terminate only the group we created.
@@ -236,7 +271,30 @@ def _stop(process):
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
-    process.wait()
+    if observer is None:
+        process.wait()
+    else:
+        try:
+            _wait(process, 1, observer)
+        except subprocess.TimeoutExpired:
+            # A descriptor can outlive the process group that owns this call.
+            # Reap the owned leader independently; incomplete stdout is an
+            # observation limit, not grounds to suppress a validated answer.
+            observer.envelope.update(needs_attention=True,
+                                     stdout_completion="incomplete after owned cleanup")
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                observer.envelope["owned_process_cleanup"] = "termination requested; process exit remains unverified"
+        finally:
+            _drain(observer)
+
+
+def _call_problem(envelope, message):
+    # A validated native terminal observation survives a separate cleanup fault.
+    if envelope["state"] not in ("returned", "provider_error"):
+        envelope["state"] = "uncertain"
+    envelope.update(needs_attention=True, message=message)
 
 
 @contextmanager
@@ -325,26 +383,39 @@ def _interpret(directory, envelope):
 
 
 def peer_main(argv=None):
-    parser = argparse.ArgumentParser(prog="relay peer", description="Call one native Claude turn and return its result to the initiating task.")
-    parser.add_argument("client", choices=("claude",))
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if raw and raw[0] == "control":
+        from .peer_control import control_main
+        return control_main(raw[1:])
+    parser = argparse.ArgumentParser(prog="relay peer", description="Call a native provider and return its observed result to the initiating task.")
+    parser.add_argument("client", choices=("claude", "codex"))
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="enrolled peer checkout")
     parser.add_argument("--relay", type=Path, help="reviewed absolute installed Relay launcher")
     parser.add_argument("--provider", type=Path, help="reviewed absolute provider entry point; default: PATH")
     parser.add_argument("--task-file", required=True, help="UTF-8 task packet; - reads stdin, at most 64 KiB")
-    parser.add_argument("--resume", type=_session, help="exact peer session UUID from a previous result; no latest-session lookup")
+    parser.add_argument("--resume", type=_native_identity, help="exact peer session identity from a previous result; no latest-session lookup")
     parser.add_argument("--output-dir", type=Path, help="new private evidence directory; default: retained temporary directory")
     parser.add_argument("--timeout", type=_positive, default=600, help="call wall-time limit in seconds (default: 600)")
-    parser.add_argument("--max-turns", type=_positive, help="optional native turn limit; omitted by default")
+    parser.add_argument("--max-turns", type=_positive, help="optional Claude native turn limit; omitted by default")
+    parser.add_argument("--live-input", action="store_true", help="enable Claude session input while this call runs; queued input may start later turns within the call timeout. Codex always exposes exact-turn input")
     parser.add_argument("--dry-run", action="store_true", help="validate task/configuration and print a plan; no provider or evidence writes")
     parser.add_argument("--json", action="store_true", help="return a structured result; this DOES launch unless --dry-run is used; exit 0 means a returned turn, so also check needs_attention and task evidence")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw)
+    if args.client == "codex" and args.max_turns is not None:
+        parser.error("--max-turns is a Claude option; Codex returns one native turn with its normal tool loop")
+    if args.client == "claude" and args.resume is not None:
+        try:
+            _session(args.resume)
+        except argparse.ArgumentTypeError as exc:
+            parser.error(str(exc))
     with _call_signals() as interruption:
         return _run_peer(args, interruption)
 
 
 def _run_peer(args, interruption):
-    session = args.resume or str(uuid.uuid4())
-    envelope = {"schema": 1, "provider": "claude", "state": "unavailable",
+    from .peer_control import CallControl, ControlError, ObservedControl
+    session = args.resume or (str(uuid.uuid4()) if args.client == "claude" else None)
+    envelope = {"schema": 1, "provider": args.client, "state": "unavailable",
                 "requested_session_id": session, "session_id": None,
                 "provider_started": False, "process_exit_code": None,
                 "evidence_directory": None, "result": None, "needs_attention": True,
@@ -354,17 +425,25 @@ def _run_peer(args, interruption):
                 "elapsed_seconds": None, "usage": None, "actual_billed_cost": "unknown"}
     directory = None
     process = None
+    observer = None
+    control = None
     code = 1
     stage = "task_read"
+    streaming = args.client == "codex" or args.live_input
     try:
         task = _task(args.task_file)
         stage = "relay_configuration"
-        plan = prepare("claude", args.repo, args.relay, args.provider)
-        native = [*plan["argv"], "--print", "--output-format", "json",
-                  "--permission-prompts", "none"]
-        if args.max_turns is not None:
-            native.extend(["--max-turns", str(args.max_turns)])
-        native.extend(["--resume" if args.resume else "--session-id", session])
+        plan = prepare(args.client, args.repo, args.relay, args.provider)
+        if args.client == "claude":
+            native = [*plan["argv"], "--print", "--output-format",
+                      "stream-json" if streaming else "json", "--permission-prompts", "none"]
+            if streaming:
+                native.extend(["--verbose", "--input-format", "stream-json", "--replay-user-messages"])
+            if args.max_turns is not None:
+                native.extend(["--max-turns", str(args.max_turns)])
+            native.extend(["--resume" if args.resume else "--session-id", session])
+        else:
+            native = [*plan["argv"], "app-server", "--listen", "stdio://"]
         envelope["repo"] = plan["repo"]
         if args.dry_run:
             print(json.dumps({**envelope, "state": "call_prepared", "argv": native,
@@ -379,6 +458,11 @@ def _run_peer(args, interruption):
             candidate.mkdir(mode=0o700)  # Refuse an existing directory; never overwrite another call.
             directory = candidate
         envelope["evidence_directory"] = str(directory)
+        if streaming:
+            control = CallControl(directory, args.client)
+            envelope["control"] = {"call_id": control.call["call_id"],
+                                   "input_mode": control.call["input_mode"],
+                                   "call_directory": str(directory)}
         _record(directory, "request.json", {"schema": 1, "argv": native, "repo": plan["repo"],
                                            "requested_session_id": session, "resumed": bool(args.resume),
                                            "task_sha256": hashlib.sha256(task).hexdigest(),
@@ -387,10 +471,11 @@ def _run_peer(args, interruption):
             stream.write(task)
         # This durable breadcrumb survives an interrupted caller. Provider stdout
         # and stderr can contain private task context; they are never auto-published.
-        print(f"relay peer: session {session}; local evidence {directory}", file=sys.stderr, flush=True)
+        print(f"relay peer: session {session or 'assigned by provider'}; local evidence {directory}", file=sys.stderr, flush=True)
         started = time.monotonic()
-        with (_private_file(directory, "stdout.json") as output,
-              _private_file(directory, "stderr.txt") as errors):
+        from contextlib import nullcontext
+        output_context = nullcontext(subprocess.PIPE) if streaming else _private_file(directory, "stdout.json")
+        with output_context as output, _private_file(directory, "stderr.txt") as errors:
             try:
                 stage = "provider_spawn"
                 # Keep a cancellation pending until we own the returned handle.
@@ -402,40 +487,72 @@ def _run_peer(args, interruption):
                                                stdout=output, stderr=errors, start_new_session=True)
                 finally:
                     interruption["starting"] = False
+                if streaming:
+                    if args.client == "codex":
+                        from . import codex_peer as driver
+                    else:
+                        from . import claude_peer as driver
+                    observer = driver.Observation(process, directory, envelope)
                 if interruption["signal"] is not None:
                     raise KeyboardInterrupt
                 envelope.update(state="uncertain", provider_started=True)
                 stage = "provider_call"
-                process.communicate(input=task, timeout=args.timeout)
+                if not streaming:
+                    process.communicate(input=task, timeout=args.timeout)
+                else:
+                    driver.run(process, task, plan["repo"], args.resume,
+                               directory, envelope, args.timeout, control=ObservedControl(control, envelope), observer=observer,
+                               **({"expected_hook": plan["relay_plan"]["hook_command"]} if args.client == "codex" else {}))
+                    # EOF is the ordinary end of this owned stdio server.
+                    # Retain a valid returned turn even if server shutdown
+                    # needs cleanup; shutdown is not a second provider turn.
+                    try:
+                        # Claude may finish a reply while native background
+                        # work is still running. Preserve its remaining call
+                        # allowance instead of treating five seconds as a task
+                        # deadline. Codex's owned server closes after its turn.
+                        grace = (max(0, args.timeout - (time.monotonic() - started))
+                                 if args.client == "claude" and observer.interpret else 5)
+                        _wait(process, grace, observer)
+                    except subprocess.TimeoutExpired:
+                        interruption["stopping"] = True
+                        _stop(process, observer)
+                        envelope["server_cleanup"] = "owned process stopped after stdin closed"
+                        envelope["needs_attention"] = True
+                    code = 0 if envelope["state"] == "returned" else 1
                 # The provider has exited. Finish interpreting and recording
                 # its actual outcome even if an ordinary signal arrives now.
                 interruption["stopping"] = True
             except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
                 interruption["stopping"] = True
                 if process is not None:
-                    _stop(process)
+                    _stop(process, observer) if observer is not None else _stop(process)
                 if process is not None:
-                    envelope.update(state="uncertain", provider_started=True)
-                envelope["message"] = "Call interrupted or timed out; work may have occurred. Inspect evidence and Relay state before any follow-up."
+                    envelope["provider_started"] = True
+                _call_problem(envelope, "Call interrupted or timed out; inspect the observed turn, retained output and Relay state before any follow-up.")
                 code = (128 + (interruption["signal"] or signal.SIGINT)) if isinstance(exc, KeyboardInterrupt) else 1
             finally:
                 envelope["elapsed_seconds"] = round(time.monotonic() - started, 3)
                 if process is not None:
                     envelope["process_exit_code"] = process.returncode
-        if "message" not in envelope:
+        if not streaming and "message" not in envelope:
             stage = "result_read"
             _interpret(directory, envelope)
             code = 0 if envelope["state"] == "returned" else 1
-    except (LaunchError, OSError, UnicodeError) as exc:
+        elif streaming and envelope["state"] == "returned" and process.returncode != 0:
+            envelope["needs_attention"] = True
+            envelope["message"] = "A native turn returned, but the provider process did not exit cleanly; inspect retained evidence."
+    except (LaunchError, ControlError, OSError, UnicodeError) as exc:
         envelope["unavailable_stage"] = stage
-        envelope["message"] = (str(exc) if isinstance(exc, LaunchError) else
+        envelope["needs_attention"] = True
+        envelope["message"] = (str(exc) if isinstance(exc, (LaunchError, ControlError)) else
                                f"Unavailable during {stage}; inspect the selected path or retained evidence.")
     except (KeyboardInterrupt, EOFError):
         interruption["stopping"] = True
         if process is not None:
-            _stop(process)
-            envelope.update(state="uncertain", provider_started=True, needs_attention=True)
-        envelope["message"] = "Interrupted; inspect any retained evidence before retrying."
+            _stop(process, observer) if observer is not None else _stop(process)
+            envelope["provider_started"] = True
+        _call_problem(envelope, "Interrupted; inspect any retained evidence before retrying.")
         code = 128 + (interruption["signal"] or signal.SIGINT)
     finally:
         # Cleanup and the receipt should survive repeated ordinary termination
@@ -443,9 +560,27 @@ def _run_peer(args, interruption):
         interruption["stopping"] = True
         if process is not None:
             if process.poll() is None:
-                _stop(process)
-                envelope.update(state="uncertain", needs_attention=True)
+                _stop(process, observer) if observer is not None else _stop(process)
+                _call_problem(envelope, "The owned provider required cleanup; inspect its observed turn and retained evidence.")
             envelope.update(provider_started=True, process_exit_code=process.returncode)
+        try:
+            if observer is not None:
+                observer.close()
+        except (ControlError, OSError) as exc:
+            envelope.update(needs_attention=True, evidence_recording="Observer cleanup or input acknowledgement is unavailable; inspect retained evidence.")
+            code = 1
+        finally:
+            if control is not None:
+                try:
+                    control.close("The owned provider call has ended.")
+                except (ControlError, OSError):
+                    envelope.update(needs_attention=True, evidence_recording="Input receipt closure is unavailable; inspect retained evidence.")
+                    code = 1
+        if streaming and envelope["state"] == "returned":
+            code = 1 if "evidence_recording" in envelope else 0
+        if "control_fault" in envelope:
+            envelope["needs_attention"] = True
+            code = 1
     if directory is not None:
         try:
             _record(directory, "result.json", envelope)
@@ -459,6 +594,12 @@ def _run_peer(args, interruption):
         print(f"Relay peer: {envelope['state']}")
         if envelope["result"]:
             print(envelope["result"])
+        results = envelope.get("native_results", [])
+        if results and not results[-1]["related"] and results[-1].get("result_excerpt"):
+            print("Additional native session result (not attributed to this call's submitted input):")
+            print(results[-1]["result_excerpt"])
+            if results[-1].get("result_excerpt_truncated"):
+                print("[Excerpt truncated; the private native stdout retains the observed text.]")
         print(envelope.get("message", "Inspect the peer result."))
         if envelope["session_id"]:
             print(f"Peer session: {envelope['session_id']}")

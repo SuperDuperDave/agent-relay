@@ -4,8 +4,13 @@ Relay is [MIT licensed](../../LICENSE). The public source is
 [SuperDuperDave/agent-relay](https://github.com/SuperDuperDave/agent-relay). Choose the release-archive
 or source-build route below. [Hosted checks](../CI.md#hosted-result) and the
 [bounded native workflow](../PROVIDERS.md#bounded-native-workflow) have separate
-scope. Consult [v0.2.0](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.2.0) for final package
+scope. Consult the [selected release](https://github.com/SuperDuperDave/agent-relay/releases) for final package
 and downloaded-package results.
+
+This guide accompanies the **v0.3 source preview**. Use the archive route only
+after the selected tag lists its reviewed assets; the local build route selects
+the reviewed source checkout. Building or installing a bundle does not establish
+a published release or a native-provider workflow result.
 
 Use an ordinary x86-64 Linux/WSL account with Python 3.12 and Git. The installed
 worker also requires Landlock ABI3+, procfs and supported filesystem birth times.
@@ -34,8 +39,8 @@ edits PATH/shell configuration, enrolls a repository or enables provider hooks.
 
 ## Install from the release archive
 
-Use this route when the [v0.2.0 release](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.2.0) lists both
-`relay-0.2.0-linux-x86_64.tar.gz` and its `.sha256` file under Assets.
+Use this route when the [v0.3.0 release](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.3.0) lists both
+`relay-0.3.0-linux-x86_64.tar.gz` and its `.sha256` file under Assets.
 Source publication and green CI alone do not establish a downloaded-package
 check; read the release's package and onboarding results first.
 
@@ -44,18 +49,18 @@ Download both files into a new empty directory. For example, with curl installed
 ```sh
 mkdir relay-download
 cd relay-download
-curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.2.0/relay-0.2.0-linux-x86_64.tar.gz
-curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.2.0/relay-0.2.0-linux-x86_64.tar.gz.sha256
-sha256sum --check relay-0.2.0-linux-x86_64.tar.gz.sha256
-tar -tvzf relay-0.2.0-linux-x86_64.tar.gz
+curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.3.0/relay-0.3.0-linux-x86_64.tar.gz
+curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.3.0/relay-0.3.0-linux-x86_64.tar.gz.sha256
+sha256sum --check relay-0.3.0-linux-x86_64.tar.gz.sha256
+tar -tvzf relay-0.3.0-linux-x86_64.tar.gz
 ```
 
-Review the listed files under the single `relay-0.2.0/` root, then extract and
+Review the listed files under the single `relay-0.3.0/` root, then extract and
 check the individual file hashes:
 
 ```sh
-tar -xzf relay-0.2.0-linux-x86_64.tar.gz
-cd relay-0.2.0
+tar -xzf relay-0.3.0-linux-x86_64.tar.gz
+cd relay-0.3.0
 sha256sum --check SHA256SUMS
 ```
 
@@ -89,7 +94,7 @@ From a reviewed source checkout:
 
 ```sh
 /usr/bin/python3 -I -S -B src/relay_bootstrap.py build-release \
-  --output dist/relay-preview --version 0.2.0
+  --output dist/relay-preview --version 0.3.0
 ```
 
 The destination must not already exist. The builder includes only bootstrap.py,
@@ -191,11 +196,13 @@ restart them. A future incompatible ledger/launcher change needs its own
 explicit migration or quiescence requirements; this updater does not promise
 arbitrary future compatibility.
 
-When upgrading v0.1.0 or a peer-preview bundle to v0.2.0,
+When upgrading an older installation to v0.3,
 use the **incoming reviewed bundle's `bootstrap.py`** for `plan` and `install`.
-Its reader recognizes exactly the original, peer-preview and current closed module sets;
-the older bootstrap cannot read the expanded bundle. This release adds setup/update
-orchestration without relaxing unknown-member refusal.
+Its reader recognizes exactly the original, peer-preview, v0.2 setup/update and
+v0.3 closed module sets. The v0.2 bootstrap cannot read the
+expanded v0.3 bundle. This version adds the Codex and Claude streaming
+adapters, shared native output capture and peer input control without relaxing
+unknown-member refusal.
 
 Rollback can reactivate the retained old release and its matching bootstrap.
 Afterward, use the newer reviewed bootstrap if installation inspection or
