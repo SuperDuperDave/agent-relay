@@ -2,7 +2,6 @@
 
 from contextlib import redirect_stderr, redirect_stdout
 import copy
-import importlib.util
 import io
 import json
 import os
@@ -16,9 +15,8 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("relay_native_provider", ROOT / "src/relay_runtime/provider.py")
-launch = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(launch)
+sys.path.insert(0, str(ROOT / "src"))
+from relay_runtime import provider as launch
 
 
 class LaunchProviderTests(unittest.TestCase):
@@ -28,7 +26,7 @@ class LaunchProviderTests(unittest.TestCase):
         self.base = Path(temporary.name)
         self.repo = self.base / "checkout 'quote' 雪 ;$(touch injected)"
         self.repo.mkdir()
-        self.relay = self.base / "relay entry"
+        self.relay = self.base / "multithread"
         self.provider = self.base / "provider entry"
         self.plan_file = self.base / "configuration.json"
         self.receipt = self.base / "provider-receipt.json"
@@ -78,8 +76,8 @@ class LaunchProviderTests(unittest.TestCase):
                 "changes_provider_settings": False, "changes_permissions": False}
 
     def invoke(self, *, client="codex", json_output=True, interactive=False, answer="launch",
-               provider=None, extra_arguments=(), input_error=None):
-        arguments = [client, "--repo", str(self.repo), "--relay", str(self.relay),
+               provider=None, extra_arguments=(), input_error=None, launcher_flag="--multithread"):
+        arguments = [client, "--repo", str(self.repo), launcher_flag, str(self.relay),
                      "--provider", str(provider or self.provider), *extra_arguments]
         if json_output:
             arguments.append("--json")
@@ -131,12 +129,23 @@ class LaunchProviderTests(unittest.TestCase):
                 provider_call.assert_not_called()
                 self.assertFalse(self.receipt.exists())
 
-    def test_preparation_uses_exact_relay_argv_and_inherited_environment(self):
+    def test_legacy_launcher_flag_keeps_the_same_prepared_invocation(self):
+        code, output, errors, prompt = self.invoke(launcher_flag="--relay")
+        self.assertEqual(0, code, errors)
+        value = json.loads(output)
+        self.assertEqual("launch_prepared", value["state"])
+        self.assertEqual([str(self.provider), *self.plan["native_arguments"]], value["argv"])
+        self.assertFalse(value["provider_started"])
+        self.assertFalse(self.receipt.exists())
+        prompt.assert_not_called()
+
+    def test_preparation_uses_exact_multithread_argv_and_inherited_environment(self):
         with (mock.patch.object(launch.subprocess, "run", return_value=self.mocked_result()) as run,
               mock.patch.object(launch.subprocess, "call") as provider_call):
             self.assertEqual(0, self.invoke()[0])
         run.assert_called_once_with(
-            [str(self.relay), "--repo", str(self.repo), "--json", "provider-config", "--client", "codex"],
+            [str(self.relay), "--repo", str(self.repo), "--json", "provider-config", "--client", "codex",
+             "--launcher-name", "multithread"],
             cwd=self.repo, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=15, check=False)
         provider_call.assert_not_called()
 
@@ -153,9 +162,10 @@ class LaunchProviderTests(unittest.TestCase):
             with (self.subTest(spelling=str(spelling)),
                   mock.patch.object(launch.subprocess, "call") as provider_call):
                 value = self.assert_unavailable(self.invoke(extra_arguments=("--repo", str(spelling))))
-                self.assertIn("Relay refused launch preparation (exit 9)", value["message"])
+                self.assertIn("Multithread refused launch preparation (exit 9)", value["message"])
                 self.assertEqual(
-                    [str(self.relay), "--repo", str(spelling), "--json", "provider-config", "--client", "codex"],
+                    [str(self.relay), "--repo", str(spelling), "--json", "provider-config", "--client", "codex",
+                     "--launcher-name", "multithread"],
                     json.loads(received.read_text()))
                 provider_call.assert_not_called()
 
@@ -171,9 +181,10 @@ class LaunchProviderTests(unittest.TestCase):
         with (mock.patch.object(launch.Path, "cwd", return_value=self.base),
               mock.patch.object(launch.subprocess, "call") as provider_call):
             value = self.assert_unavailable(self.invoke(extra_arguments=("--repo", str(spelling))))
-        self.assertIn("Relay refused launch preparation (exit 9)", value["message"])
+        self.assertIn("Multithread refused launch preparation (exit 9)", value["message"])
         self.assertEqual(
-            [str(self.relay), "--repo", str(self.base / spelling), "--json", "provider-config", "--client", "codex"],
+            [str(self.relay), "--repo", str(self.base / spelling), "--json", "provider-config", "--client", "codex",
+             "--launcher-name", "multithread"],
             json.loads(received.read_text()))
         provider_call.assert_not_called()
 

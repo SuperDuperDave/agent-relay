@@ -1,5 +1,10 @@
 # Verified runtime generations - internal implementation
 
+Historical implementation checkpoint from Multithread's Agent Relay development.
+The original module names, closed-member counts and remaining gates below retain
+that scope. For current installation and compatibility behavior, use
+[installation](INSTALLATION.md); internal `relay_*` namespaces remain unchanged.
+
 The stdlib-only `src/relay_bootstrap.py` implements approved-source capture,
 immutable runtime generation storage, explicit activation, and retained-byte
 Python loading. Its newer public release interface also installs a coherent

@@ -36,6 +36,7 @@ removed = call([str(launcher), "runtime", "uninstall", "--expected-plan", plan["
 assert removed["uninstalled"] and removed["state"] == "complete"
 assert not removed["artifact_purge_complete"] and not removed["enrollment_changed"] and not removed["hooks_changed"]
 assert not launcher.exists() and not launcher.is_symlink()
+assert not compatibility_launcher.exists() and not compatibility_launcher.is_symlink()
 assert not (installation / "releases").exists() and not (installation / "launches").exists()
 remaining_names = {p.name for p in installation.iterdir()}
 assert len(remaining_names) == 3 and "activation.lock" in remaining_names, remaining_names

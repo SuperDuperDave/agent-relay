@@ -1,18 +1,20 @@
 # Call another native provider and continue your task
 
-Multithread (formerly Agent Relay) includes `relay peer`: a coding agent calls
+Multithread (formerly Agent Relay) includes `multithread peer`: a coding agent calls
 another native provider, receives its answer as the command result, and continues
 the same task. There is no second application or message-forwarding service.
 
-**v0.3 source preview.** Adds Codex calls and live input. Check the selected
-release's version and verification results before installation. The earlier
+**v0.4 preview.** The preferred installed command is `multithread`; `relay`
+remains a compatible entry point to the same installation and ledger. The
+published v0.3.0 release already includes Codex calls and live input, using
+`relay`. Check the selected release's version and verification results before
+installation. The earlier
 v0.2.0 release supports Claude call/return and exact-session resume; its archive
 lacks the v0.3 additions. The historical v0.1.0 archive has no peer command.
-Use the [setup guide](SETUP.md) for a published release, or the
-[source entry](#use-the-source-entry)
-for the new commands with an existing v0.2.0 installation.
+Use the [setup guide](SETUP.md) for a published release. The
+[source entry](#use-the-source-entry) is available for reviewed development work.
 
-The installed command remains `relay`. See the
+See the
 [project page](https://mainthread.ai/work/relay/) for the Multithread introduction.
 
 Use it when a second perspective is worth the extra provider usage. Either
@@ -23,8 +25,8 @@ independently idle session.
 ## Before calling
 
 Use a functioning provider environment and an enrolled checkout. Follow
-[setup](SETUP.md). The installation also includes `relay launch`
-for interactive Codex/Claude launches; `relay launch claude --json` only prepares
+[setup](SETUP.md). The installation also includes `multithread launch`
+for interactive Codex/Claude launches; `multithread launch claude --json` only prepares
 that interactive launch plan.
 
 The peer flags are available in Claude Code 2.1.267; `--permission-prompts none`
@@ -34,63 +36,109 @@ Claude print mode loads normal instructions, hooks, skills and configured MCP
 servers, and does not show its interactive workspace trust dialog.
 The Codex adapter uses the stable App Server interface. The v0.3 native
 source-entry observations use Codex 0.153.4 and Claude Code 2.1.269. Codex hook
-trust remains a separate native review: use `relay launch codex` for the selected
-checkout, open `/hooks`, and review the exact Relay commands. A changed hook
+trust remains a separate native review: use `multithread launch codex` for the selected
+checkout, open `/hooks`, and review the exact generated commands. A changed hook
 definition can need review again. Listing a trusted hook does not prove it ran.
 
-Relay inherits the provider's normal environment, sign-in and permission mode.
+Multithread inherits the provider's normal environment, sign-in and permission mode.
 It never selects bare mode, copies credentials, changes permission rules or
 disables native sandboxing. Subscription sign-in can be used; an API key or
 other provider configuration can change the effective billing path. Check it
-through the provider's normal interface. Relay does not certify account billing.
+through the provider's normal interface. Multithread does not certify account billing.
 [Claude programmatic use](https://code.claude.com/docs/en/headless) ·
 [Authentication](https://code.claude.com/docs/en/authentication)
+
+## First collaboration
+
+After [setup preparation](SETUP.md#check-readiness-or-enroll-another-project),
+paste this into your coding agent in the enrolled repository. It authorizes one
+native call and its scoped provider usage. Preparation alone does not establish
+native sign-in, hook trust or tool execution; complete any required native trust
+review through the provider's normal interface before calling.
+
+```text
+Use Multithread for one scoped, read-only collaboration in this Git repository.
+Follow https://github.com/SuperDuperDave/agent-relay/blob/main/docs/PEER.md.
+Verify the Git root/common directory and installed readiness. Choose an existing,
+functioning Claude or Codex provider, preferably the other provider from yours.
+I authorize one native peer call through my existing provider installation and
+access, sharing only the repository code and context needed for this review,
+with its normal provider usage. Keep existing sign-in, trust and permission rules.
+
+Give the peer this task: choose one documented command or feature and trace it
+through its implementation and existing tests. Review only those relevant files.
+Return up to three concrete defects or documentation mismatches, with file/line
+evidence and why they matter, or explicitly report no material findings. State
+what you inspected and any uncertainty. Do not edit project files, run programs
+from the project, install anything, invoke another peer, commit, publish, or
+acquire/release claims or acknowledge handoffs.
+
+Use the installed ~/.local/bin/multithread peer command with a small task file
+or stdin; ~/.local/bin/relay is compatible on older installations. Private local
+call evidence is authorized. Review the dry-run, then execute that same scoped
+call with --json and a 600-second timeout. A dry-run is preparation, not the call.
+Keep credentials, account files and unrelated private material out of the task.
+
+Read the receipt and retained result before continuing. Independently inspect
+the cited files and assess each finding; do not apply changes. Finish with the
+findings you accept or reject, why, and any remaining work. Distinguish an
+unavailable provider, a refused action, an uncertain outcome, a returned answer
+and a completed review. Do not infer completion from exit status or returned
+text, widen permissions, or automatically retry an uncertain call.
+```
+
+A useful first result names the reviewed feature, returns an evidence-backed
+assessment, and shows how the initiating agent checked it. “No material findings”
+can satisfy the review if the scope was actually inspected. A denied tool or
+missing observation remains visible; useful partial findings can be assessed
+without claiming the whole review completed. This task needs no claim or test
+handoff, and it does not itself verify hook delivery or a ledger workflow.
 
 ## Send a scoped task
 
 Write a small UTF-8 task file with the goal, scope and acceptance criteria. For
-example, after publishing a commit-backed Relay handoff for Claude:
+example, after publishing a commit-backed Multithread handoff for Claude:
 
 ```text
-Review Relay handoff <sequence> for work <work-id>.
+Review Multithread handoff <sequence> for work <work-id>.
 Inspect the exact commit and relevant tests. Work only in this checkout and
 within the approved review scope. Report actionable defects with evidence,
 or explicitly say no material findings. Acknowledge the handoff after review;
 release any claim you acquired. Report anything that remains incomplete.
 ```
 
-Use the installed launcher's actual path if `relay` is not on PATH:
+Use the installed launcher's actual path, normally:
 
 ```sh
-relay peer claude --repo /absolute/enrolled/reviewer-checkout \
+~/.local/bin/multithread peer claude --repo /absolute/enrolled/reviewer-checkout \
   --task-file review-task.txt --json
 ```
 
-With a reviewed v0.3 installation, select `codex` in the same command
-to call Codex. For a v0.2.0 installation, use the source entry below.
+Select `codex` in the same command to call Codex. Existing v0.3 installations
+support both providers with `~/.local/bin/relay peer`; update for the new name.
 Either initiating provider can use these commands through its ordinary shell
 tools. The caller's provider does not determine the peer's provider.
 
 `--json` returns structured output **and executes the call**. Add `--dry-run`
 to inspect the task hash and native arguments without starting a provider or writing
-call evidence. Unlike `relay launch`, an explicit peer call has no additional
+call evidence. Unlike `multithread launch`, an explicit peer call has no additional
 interactive confirmation prompt. Provider usage must already be authorized.
 Task text goes through stdin as data, never shell evaluation or command-line
 prompt interpolation. Use `--task-file -` to supply it from stdin directly.
 
 The task limit is 64 KiB. Larger artifacts belong in the repository and can be
 referenced by the task. The default timeout is 600 seconds; use `--timeout` to
-adjust it for the work. Relay imposes no native turn cap by default. Supply
+adjust it for the work. Multithread imposes no native turn cap by default. Supply
 `--max-turns` for an explicit Claude turn limit. Codex performs one native turn
 with its normal tool loop. Choose bounds proportionate
 to the task so the peer has time to inspect evidence and produce a useful
-answer. Relay makes one invocation and never automatically retries it.
+answer. Multithread makes one invocation and never automatically retries it.
 
 Normal permission rules remain in force. When a tool needs approval that this
 noninteractive call cannot obtain, Claude denies it and reports the denial.
 For Codex, configured native approval review remains in effect; requests routed
-to this unattended client are declined. Relay never supplies extra permissions.
-Relay retains useful partial output. The initiating agent should report any
+to this unattended client are declined. Multithread never supplies extra permissions.
+Multithread retains useful partial output. The initiating agent should report any
 required human decision; it must not silently widen permissions to finish.
 
 ## Read the result before continuing
@@ -100,6 +148,7 @@ required human decision; it must not silently widen permissions to finish.
 | `returned` | A matching final provider result arrived. Assess its content and `needs_attention`; a later streaming-process or recording fault does not erase an observed answer. This is not acceptance of the task. |
 | `provider_error` | A matching native error, interruption or limit result. Legacy Claude calls also classify a nonzero process exit this way. Useful text and bounded `provider_errors` remain available. |
 | `unavailable` | Preparation or spawning failed; `provider_started` and `unavailable_stage` identify what was reached. |
+| Refused action | A preparation refusal or native permission denial prevented that action. Inspect its stated reason and the call result; refusal is not a successful operation or proof that all other work failed. |
 | `uncertain` | The call started but timed out, was interrupted, or lacked a valid matching result. External work may already have happened. |
 | `needs_attention`, `permission_denials`, `terminal_reason` | Check these even when the process exits zero. Tool denials and stopped/deferred work can accompany useful output. |
 | `session_id` | The verified native session identity: a UUID for Claude, an opaque native thread ID for Codex. Claude's requested UUID is recorded before launching; Codex assigns a fresh thread ID during initialization. Resume always targets the exact supplied identity. |
@@ -113,7 +162,7 @@ The default is a retained temporary directory, subject to the OS's cleanup
 policy. Its location is printed before launch, together with Claude's requested
 session UUID or a note that Codex will assign the identity.
 Keep these files private: native output and task text can contain sensitive
-project information. Nothing is uploaded or published by Relay's recorder.
+project information. Nothing is uploaded or published by Multithread's recorder.
 `stdout_observation` records the byte count and SHA-256 of observed stdout.
 For Codex and Claude `--live-input`, capture is limited to 16 MiB, plus one byte
 to detect overflow. Exceeding that bound sets `truncated`, stops interpretation,
@@ -126,7 +175,7 @@ provider descendant may still hold their file descriptors. Compare observed
 bytes before reusing a summary if they changed.
 
 After timeout or an uncertain result, inspect the local evidence and durable
-work before deciding whether to continue. Relay stops only the process group
+work before deciding whether to continue. Multithread stops only the process group
 created for that call. Killing a process does not prove that prior external
 operations were undone. Never release someone else's claim to tidy the result.
 SIGINT, SIGTERM and SIGHUP also trigger owned-process cleanup and an uncertain
@@ -147,7 +196,7 @@ For an intentional follow-up, use the exact returned native session identity
 and the same checkout. Claude uses a session UUID:
 
 ```sh
-relay peer claude --repo /absolute/enrolled/reviewer-checkout \
+~/.local/bin/multithread peer claude --repo /absolute/enrolled/reviewer-checkout \
   --resume <exact-session-uuid> --task-file follow-up.txt --json
 ```
 
@@ -166,28 +215,28 @@ do not establish net token savings or broad reliability.
 
 ## Update a running peer
 
-Live input applies to a call that Relay owns and that is still running. Codex
+Live input applies to a call that Multithread owns and that is still running. Codex
 exposes input for its exact active turn. For Claude, add `--live-input` when
 starting the call: an update can be picked up between tool calls or become a
 later turn in the same session. This opt-in can use additional provider turns;
 the original wall-time limit still applies to the whole call. It is not a
 promise that an update will affect work already in progress.
 
-These commands require v0.3. Use the source entry described below
-in place of `relay peer` when your installed runtime is v0.2.0.
+Live input requires v0.3 or later; the `multithread` launcher requires v0.4 or
+later. With v0.3, use `~/.local/bin/relay peer` in these commands.
 
 Choose `--output-dir` when launching so another cooperating process can locate
 the call while the initiating tool waits. The directory must not already exist.
 Inspect its current input target:
 
 ```sh
-relay peer control status --call-dir /absolute/peer-call --json
+~/.local/bin/multithread peer control status --call-dir /absolute/peer-call --json
 ```
 
 Use the advertised session and turn to send a Codex update:
 
 ```sh
-relay peer control send --call-dir /absolute/peer-call \
+~/.local/bin/multithread peer control send --call-dir /absolute/peer-call \
   --session <session-id> --turn <turn-id> --message-file update.txt --json
 ```
 
@@ -223,7 +272,7 @@ main-session task.
 
 The mailbox is private local coordination among cooperating processes under the
 same OS account. It is not agent authentication or a background service. An open
-target file alone does not prove its owner remains alive after a crash. Relay
+target file alone does not prove its owner remains alive after a crash. Multithread
 does not automatically replay pending work on restart. Per-call bounds keep this
 channel finite; inspect explicit refusals rather than opening replacement calls
 to evade them.
@@ -301,16 +350,17 @@ hide source files or alter provider capabilities for isolation.
 ## Use the source entry
 
 From the reviewed source checkout, `examples/call_peer.py` invokes the same
-helper against a reviewed installed Relay selected with `--relay`:
+helper against a reviewed installed Multithread selected with `--multithread`
+(`--relay` remains a compatibility spelling):
 
 ```sh
 /usr/bin/python3 -I -S -B examples/call_peer.py codex \
-  --relay /absolute/reviewed/relay --repo /absolute/enrolled/peer-checkout \
+  --multithread /absolute/reviewed/multithread --repo /absolute/enrolled/peer-checkout \
   --task-file task.txt --output-dir /absolute/new-peer-call --json
 ```
 
 Select `claude` and add `--live-input` for Claude session input. In control
-commands, replace `relay peer` with the same source entry:
+commands, replace `multithread peer` with the same source entry:
 
 ```sh
 /usr/bin/python3 -I -S -B examples/call_peer.py control status \

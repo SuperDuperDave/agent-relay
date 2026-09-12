@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a real installed Relay workflow with scripted actors, without accounts."""
+"""Run a real installed Multithread workflow with scripted actors, without accounts."""
 import argparse
 import hashlib
 import json
@@ -117,14 +117,14 @@ def main():
             raise RuntimeError("invoke with /usr/bin/python3 -I -S -B examples/no_account_demo.py")
         result = run_demo()
     except (RuntimeError, OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
-        print("Relay demo did not pass: " + str(error), file=sys.stderr)
+        print("Multithread demo did not pass: " + str(error), file=sys.stderr)
         print("Requires enabled rootless user/mount/network namespaces and the installed Linux runtime profile. "
               "No unisolated fallback is attempted.", file=sys.stderr)
         return 2
     if args.json:
         print(json.dumps(result, sort_keys=True, indent=2))
     else:
-        print("Relay: durable handoff demo (scripted actors; no provider accounts)")
+        print("Multithread: durable handoff demo (scripted actors; no provider accounts)")
         print("  1. Installed an offline preview in a disposable Linux account.")
         print("  2. Reproduced two failing progress-indicator tests; committed the fix.")
         print("  3. Stopped the producer after its handoff, before any notification.")
@@ -134,7 +134,7 @@ def main():
         print("  7. Explicitly acknowledged once; retries added no duplicate handoff or ACK.")
         print(f"PASS: {result['events']} real ledger events; SQLite integrity {result['sqlite_integrity']}.")
         print("Artifact: git:" + result["artifact"])
-        print("Temporary account, worktrees and installation removed. Your Relay setup was not used.")
+        print("Temporary account, worktrees and installation removed. Your Multithread setup was not used.")
         print("This demonstrates protocol mechanics, not live Codex/Claude behavior.")
     return 0
 

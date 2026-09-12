@@ -8,6 +8,7 @@ import test_public_profile as profile
 
 _HOOKS = profile._COMMON + r"""
 assert not pathlib.Path("/source").exists() and not pathlib.Path("/bundle").exists()
+launcher = home / ".local/bin/multithread"
 base = [str(launcher), "--repo", str(project), "--json"]
 
 def hook(client, name, **fields):
@@ -57,8 +58,8 @@ for client in ("codex", "claude"):
     assert set(output) == {"hookSpecificOutput"}
     context = output["hookSpecificOutput"]
     assert context["hookEventName"] == "SessionStart"
-    assert "RELAY AGENT CONTRACT v1" in context["additionalContext"]
-    assert "RELAY BRIEF v1" in context["additionalContext"]
+    assert "MULTITHREAD AGENT CONTRACT v1" in context["additionalContext"]
+    assert "MULTITHREAD BRIEF v1" in context["additionalContext"]
     assert client + "-fixture-session" in context["additionalContext"]
     events = call(base + ["events"])
     assert events[-1]["kind"] == "session.started" and events[-1]["agent"] == client

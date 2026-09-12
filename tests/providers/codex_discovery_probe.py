@@ -128,13 +128,13 @@ assert not pathlib.Path("/source").exists() and not pathlib.Path("/bundle").exis
 assert [row.split(":")[0].strip() for row in pathlib.Path("/proc/net/dev").read_text().splitlines()[2:]] == ["lo"]
 repo = pathlib.Path("/tmp/project") / ("quoted '雪 🧪 ;$ &" + chr(127))
 repo.mkdir()
-base = ["/home/relay-fixture/.local/bin/relay", "--repo", str(repo), "--json"]
+base = ["/home/relay-fixture/.local/bin/multithread", "--repo", str(repo), "--json"]
 def relay(*args):
     result = subprocess.run(base + list(args), text=True, capture_output=True, timeout=15)
     assert result.returncode == 0 and not result.stderr, (result.returncode, result.stderr)
     return json.loads(result.stdout)
 relay("init")
-generated = relay("provider-config", "--client", "codex")
+generated = relay("provider-config", "--client", "codex", "--launcher-name", "multithread")
 assert not generated["launches_provider"] and not generated["changes_provider_settings"] and not generated["changes_permissions"]
 schema_dir = pathlib.Path("/tmp/codex-native-schema")
 schema_result = subprocess.run(["/opt/codex", "app-server", "generate-json-schema",

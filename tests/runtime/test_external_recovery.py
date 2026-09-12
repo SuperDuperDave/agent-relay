@@ -134,8 +134,9 @@ class ExternalRecoveryTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.replacement.runtime_manifest).hexdigest(), plan["runtime_sha256"])
         self.assertEqual(case.observation, plan["expected_selector"])
         self.assertFalse(plan["release_already_installed"])
-        self.assertEqual(str(case.manager.bin_directory / "relay"), plan["launcher"])
-        self.assertEqual([str(case.manager.root), plan["launcher"]], plan["writes"])
+        self.assertEqual(str(case.manager.bin_directory / "multithread"), plan["launcher"])
+        self.assertEqual([str(case.manager.root), str(case.manager.bin_directory / "relay"),
+                          plan["launcher"]], plan["writes"])
         for field in ("repairs_damaged_files", "enrollment_changed", "hooks_changed",
                       "network_access", "stops_running_commands"):
             self.assertIs(False, plan[field])

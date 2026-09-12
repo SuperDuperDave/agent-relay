@@ -768,7 +768,7 @@ class BriefingAndDeliveryTests(RelayTestCase):
             timeout=15,
         )
         self.assertEqual(0, plain.returncode, plain.stderr.decode())
-        self.assertTrue(plain.stdout.startswith(b"RELAY BRIEF v1\n"))
+        self.assertTrue(plain.stdout.startswith(b"MULTITHREAD BRIEF v1\n"))
         self.assertNotIn(stdin_canary, plain.stdout)
 
         with self.open_store() as store:

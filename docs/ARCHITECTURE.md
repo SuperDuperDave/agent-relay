@@ -1,13 +1,14 @@
 # Architecture and tradeoffs
 
-Relay's first job is to preserve coordination across processes and worktrees:
+Multithread's first job is to preserve coordination across processes and worktrees:
 who holds a shared resource, which exact artifact needs review, and whether
 the intended recipient has deliberately consumed a handoff.
 
-Relay 0.1.0 is a local coordination preview with an exercised installed runtime
-and bounded native coding/review workflow on Linux/WSL2. The
+Multithread is a local coordination preview with an exercised installed runtime
+and bounded native coding/review evidence on Linux/WSL2. The
 [provider guide](PROVIDERS.md#bounded-native-workflow) describes the actual
-sessions, manual notifications and controller Git-commit boundary.
+historical sessions, manual notifications and controller Git-commit boundary;
+the [peer guide](PEER.md) covers current native call/return and its separate evidence.
 
 ## Three boundaries
 
@@ -39,7 +40,7 @@ It does not import runtime implementation objects or test fixtures.
 
 A successful send means only that a transport accepted a send. It does not
 mean the recipient read the handoff, inspected its artifact, finished a review
-or was authorized to take an external action. Relay keeps pending work until
+or was authorized to take an external action. Multithread keeps pending work until
 an explicit matching acknowledgement. The demo's two repeated pending reads
 leave both event count and pending status unchanged.
 
@@ -87,7 +88,7 @@ primary-source rationale, test evidence and limits.
 
 ## Intentional limits
 
-- The source preview's native launch/peer adapter runs outside the confined
+- The native launch/peer adapter runs outside the confined
   ledger worker. It obtains hook configuration through an admitted read-only
   worker, then invokes the provider with its normal environment and permissions.
   Process return is separate from ledger acknowledgement and workflow completion;

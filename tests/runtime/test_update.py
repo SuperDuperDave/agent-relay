@@ -259,7 +259,7 @@ class UpdateCommandTests(ReleaseFixture):
     def setUp(self):
         super().setUp()
         self.account = self.base / "account"
-        self.launcher = str(self.account / ".local/bin/relay")
+        self.launcher = str(self.account / ".local/bin/multithread")
         self.repo = self.base / "repo 'quoted' ;$(touch injected)"
         self.repo.mkdir()
         self.active = self.active_state("0.1.0", "c" * 64, "d" * 32)

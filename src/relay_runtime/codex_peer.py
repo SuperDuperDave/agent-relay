@@ -2,7 +2,7 @@
 
 The caller owns the process and cleanup. This module owns only its JSONL pipes,
 private stdout observation, and native response interpretation. Native request
-acceptance never substitutes for a durable Relay acknowledgement.
+acceptance never substitutes for a durable Multithread acknowledgement.
 """
 
 import json
@@ -79,7 +79,7 @@ class _Driver:
         self.envelope["hook_readiness"] = {"state": "ready" if ready == required else "needs_review",
                                             "ready_events": sorted(ready), "unready_events": sorted(required - ready)}
         if ready != required:
-            raise _ProtocolError("Public Relay hooks are not ready; no task was submitted. Use relay launch codex for this checkout, review the exact Relay commands in /hooks, then return here. Relay does not change native hook trust.")
+            raise _ProtocolError("Public Multithread hooks are not ready; no task was submitted. Use multithread launch codex for this checkout, review the exact Multithread commands in /hooks, then return here. Multithread does not change native hook trust.")
 
     def remaining(self):
         remaining = self.deadline - time.monotonic()
@@ -383,7 +383,7 @@ class _Driver:
                              terminal_reason=self.terminal, provider_turns=1)
         if self.terminal in ("failed", "interrupted"):
             self.envelope.update(state="provider_error", needs_attention=True,
-                                 message="The native turn failed or was interrupted; inspect retained output and Relay evidence.")
+                                 message="The native turn failed or was interrupted; inspect retained output and Multithread evidence.")
             self.outcome_recorded = True
             return
         finals = [item["text"] for item in self.messages.values()
@@ -400,7 +400,7 @@ class _Driver:
             raise _ProtocolError("The native turn completed without a validated final answer; partial text is retained.")
         self.envelope.update(state="returned", result="\n\n".join(finals),
                              needs_attention=bool(self.denials or self.unknown_requests or self.had_problem),
-                             message="Assess the answer and durable Relay evidence; a returned turn is not workflow completion.")
+                             message="Assess the answer and durable Multithread evidence; a returned turn is not workflow completion.")
         self.outcome_recorded = True
 
 
@@ -417,7 +417,7 @@ def run(process, task: bytes, repo: str, resume: str | None, directory: Path,
             selector.register(process.stdout, selectors.EVENT_READ, "stdout")
             writing = False
             driver.request("initialize", {"clientInfo": {"name": "multithread", "title": "Multithread",
-                                                         "version": "0.3.0"}})
+                                                         "version": "0.4.0"}})
             while not observation.eof:
                 driver.poll_control()
                 if driver.outgoing and not writing:

@@ -1,4 +1,4 @@
-"""SQLite authority for Relay.
+"""SQLite authority for Multithread.
 
 The ledger is shared by every worktree through the repository's Git common
 directory.  Events are immutable; claims are the one intentionally mutable
@@ -48,7 +48,7 @@ def _bind_installed_access(access) -> None:
     global _INSTALLED_ACCESS
     with _INSTALLED_ACCESS_LOCK:
         if _INSTALLED_ACCESS is not None:
-            raise StateError("installed Relay admission is already bound")
+            raise StateError("installed Multithread admission is already bound")
         access.verify()
         _INSTALLED_ACCESS = access
 
@@ -390,11 +390,11 @@ def resolve_paths(
             state_mode = state_dir.lstat().st_mode
             database_mode = database.lstat().st_mode
         except FileNotFoundError as exc:
-            raise StateError("Relay read-only state is unavailable") from exc
+            raise StateError("Multithread read-only state is unavailable") from exc
         except OSError as exc:
-            raise StateError(f"cannot inspect Relay read-only state: {exc}") from exc
+            raise StateError(f"cannot inspect Multithread read-only state: {exc}") from exc
         if not stat.S_ISDIR(state_mode) or not stat.S_ISREG(database_mode):
-            raise StateError("Relay read-only state is not a regular database")
+            raise StateError("Multithread read-only state is not a regular database")
     for path in (database, hook_error_log):
         _assert_no_symlink_components(path)
     return RelayPaths(
@@ -440,17 +440,17 @@ class RelayStore:
             initial_version = int(self._db.execute("PRAGMA user_version").fetchone()[0])
             if initial_version > SCHEMA_VERSION:
                 raise StateError(
-                    f"Relay database schema {initial_version} is newer than this client "
+                    f"Multithread database schema {initial_version} is newer than this client "
                     f"({SCHEMA_VERSION})"
                 )
             if read_only:
                 if initial_version != SCHEMA_VERSION:
                     raise StateError(
-                        f"unsupported Relay database schema {initial_version}"
+                        f"unsupported Multithread database schema {initial_version}"
                     )
                 integrity = self._db.execute("PRAGMA integrity_check").fetchall()
                 if len(integrity) != 1 or str(integrity[0][0]) != "ok":
-                    raise StateError("Relay database failed integrity check")
+                    raise StateError("Multithread database failed integrity check")
                 return
             self._establish_wal()
             self._db.execute("PRAGMA synchronous = FULL")
@@ -461,7 +461,7 @@ class RelayStore:
         except sqlite3.OperationalError as exc:
             raise _translate_sqlite(exc) from exc
         except sqlite3.DatabaseError as exc:
-            raise StateError(f"Relay database is unreadable: {exc}") from exc
+            raise StateError(f"Multithread database is unreadable: {exc}") from exc
 
     @classmethod
     def open(
@@ -860,7 +860,7 @@ class RelayStore:
         """Append one fenced Claude-to-Codex engineering decision request.
 
         Rollout law: callers may not emit these version-1 internal kinds until
-        this implementation is integrated and every active Relay client has
+        this implementation is integrated and every active Multithread client has
         refreshed to a build that understands them.
         """
 
@@ -1078,7 +1078,7 @@ class RelayStore:
             "SELECT * FROM events WHERE seq = ?", (signal_seq,)
         ).fetchone()
         if signal is None:
-            raise ConflictError(f"unknown Relay signal sequence: {signal_seq}")
+            raise ConflictError(f"unknown Multithread signal sequence: {signal_seq}")
         if signal["kind"] == "decision.requested":
             raise ConflictError(
                 "decision requests may be acknowledged only by decision respond"
@@ -1528,7 +1528,7 @@ class RelayStore:
             version = int(self._db.execute("PRAGMA user_version").fetchone()[0])
             if version > SCHEMA_VERSION:
                 raise StateError(
-                    f"Relay database schema {version} is newer than this client "
+                    f"Multithread database schema {version} is newer than this client "
                     f"({SCHEMA_VERSION})"
                 )
             if version == 0:
@@ -1548,7 +1548,7 @@ class RelayStore:
                 # installed idempotently.
                 self._harden_v2_ratchet_state()
             if version != SCHEMA_VERSION:
-                raise StateError(f"unsupported Relay database schema {version}")
+                raise StateError(f"unsupported Multithread database schema {version}")
 
     def _migrate_v1_to_v2(self) -> None:
         # v1 accepted both spellings as distinct raw resources. Never let a
@@ -1567,7 +1567,7 @@ class RelayStore:
         if len(active) > 1:
             claim_ids = ", ".join(str(row["claim_id"]) for row in active)
             raise StateError(
-                "Relay schema v2 cannot canonicalize main integration claims "
+                "Multithread schema v2 cannot canonicalize main integration claims "
                 f"while both legacy and canonical authorities are active: {claim_ids}"
             )
 
@@ -1645,7 +1645,7 @@ class RelayStore:
             sample = ", ".join(str(row["seq"]) for row in malformed[:5])
             suffix = ", ..." if len(malformed) > 5 else ""
             raise StateError(
-                "Relay v2 ratchet guards require normalized duplicate-free "
+                "Multithread v2 ratchet guards require normalized duplicate-free "
                 f"metadata; invalid events: {sample}{suffix}"
             )
 
@@ -1717,7 +1717,7 @@ class RelayStore:
             )
             suffix = ", ..." if len(invalid_decisions) > 5 else ""
             raise StateError(
-                "Relay v2 ratchet guards found decisions outside the mode, "
+                "Multithread v2 ratchet guards found decisions outside the mode, "
                 "observation, or drop-recurrence invariant: "
                 f"{sample}{suffix}"
             )
@@ -1789,7 +1789,7 @@ class RelayStore:
             )
             suffix = ", ..." if len(invalid_empirical) > 5 else ""
             raise StateError(
-                "Relay v2 ratchet guards found empirical verification outside "
+                "Multithread v2 ratchet guards found empirical verification outside "
                 "the outcome, decision, or uniqueness invariant: "
                 f"{sample}{suffix}"
             )
@@ -1856,7 +1856,7 @@ class RelayStore:
             )
             suffix = ", ..." if len(violations) > 5 else ""
             raise StateError(
-                "Relay v2 ratchet guards cannot enforce terminal drop decisions because "
+                "Multithread v2 ratchet guards cannot enforce terminal drop decisions because "
                 "incompatible ratchet verification or closure events already exist: "
                 f"{sample}{suffix}"
             )
@@ -1907,7 +1907,7 @@ class RelayStore:
             )
             suffix = ", ..." if len(unpaired_drops) > 5 else ""
             raise StateError(
-                "Relay v2 ratchet guards found unpaired terminal drop decisions; "
+                "Multithread v2 ratchet guards found unpaired terminal drop decisions; "
                 f"refusing a partial upgrade: {sample}{suffix}"
             )
 
@@ -1920,7 +1920,7 @@ class RelayStore:
             try:
                 mode = str(self._db.execute("PRAGMA journal_mode = WAL").fetchone()[0])
                 if mode.lower() != "wal":
-                    raise StateError(f"Relay requires SQLite WAL mode, got {mode!r}")
+                    raise StateError(f"Multithread requires SQLite WAL mode, got {mode!r}")
                 return
             except sqlite3.OperationalError as exc:
                 last_error = exc
@@ -1928,7 +1928,7 @@ class RelayStore:
                     raise _translate_sqlite(exc) from exc
                 time.sleep(min(0.01 * (attempt + 1), 0.1))
         assert last_error is not None
-        raise BusyError(f"Relay could not establish WAL mode: {last_error}")
+        raise BusyError(f"Multithread could not establish WAL mode: {last_error}")
 
     def _secure_database_files(self) -> None:
         if _INSTALLED_ACCESS is not None:
@@ -1959,7 +1959,7 @@ class RelayStore:
         except sqlite3.DatabaseError as exc:
             if self._db.in_transaction:
                 self._db.execute("ROLLBACK")
-            raise StateError(f"Relay database transaction failed: {exc}") from exc
+            raise StateError(f"Multithread database transaction failed: {exc}") from exc
         except Exception:
             if self._db.in_transaction:
                 self._db.execute("ROLLBACK")
@@ -1971,7 +1971,7 @@ class RelayStore:
         except sqlite3.OperationalError as exc:
             raise _translate_sqlite(exc) from exc
         except sqlite3.DatabaseError as exc:
-            raise StateError(f"Relay database read failed: {exc}") from exc
+            raise StateError(f"Multithread database read failed: {exc}") from exc
 
     def _insert_event(self, event: Event) -> tuple[int, bool]:
         try:
@@ -2011,7 +2011,7 @@ class RelayStore:
                 (event.event_id,),
             ).fetchone()
             if existing is None:
-                raise StateError(f"Relay event insert failed: {exc}") from exc
+                raise StateError(f"Multithread event insert failed: {exc}") from exc
             if (
                 existing["body_hash"] == event.body_hash
                 and existing["canonical_json"] == event.canonical_json
@@ -2242,7 +2242,7 @@ class RelayStore:
         except (RelayError, TypeError, ValueError, json.JSONDecodeError) as exc:
             seq = row["seq"] if "seq" in row.keys() else "unknown"
             raise StateError(
-                f"Relay event {seq} has invalid canonical state"
+                f"Multithread event {seq} has invalid canonical state"
             ) from exc
         mismatched = [
             name for name, value in expected.items()
@@ -2250,7 +2250,7 @@ class RelayStore:
         ]
         if mismatched:
             raise StateError(
-                f"Relay event {int(row['seq'])} failed canonical integrity"
+                f"Multithread event {int(row['seq'])} failed canonical integrity"
             )
 
     @staticmethod
@@ -2300,7 +2300,7 @@ def record_hook_failure(paths: RelayPaths, client: str, message: str) -> None:
     """Best-effort, sanitized observation failure log.
 
     Lifecycle hooks must never block an agent turn.  This log contains only the
-    client name and exception class/message emitted by Relay itself—never hook
+    client name and exception class/message emitted by Multithread itself—never hook
     stdin or environment values.
     """
 
@@ -2339,7 +2339,7 @@ def _git_path(cwd: Path, flag: str) -> Path:
             env=env,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise StateError(f"cannot resolve Relay repository identity: {exc}") from exc
+        raise StateError(f"cannot resolve Multithread repository identity: {exc}") from exc
     value = result.stdout.strip()
     if not value:
         raise StateError("git returned an empty repository path")
@@ -2349,8 +2349,8 @@ def _git_path(cwd: Path, flag: str) -> Path:
 def _expected_workspace_binding() -> Path | None:
     """The canonical Git common directory that owns this shipping package.
 
-    Relay resolves *which* repository a caller is standing in, but that answer has
-    never been checked against *which* repository this Relay belongs to.  The
+    Multithread resolves *which* repository a caller is standing in, but that answer has
+    never been checked against *which* repository this Multithread belongs to.  The
     binding is that missing second half, and it is derived from one place only:
     the Git common directory containing this package's own resolved ``__file__``.
     A requested repository can therefore never authorize itself.
@@ -2369,7 +2369,7 @@ def _expected_workspace_binding() -> Path | None:
 
 
 def _assert_workspace_binding(actual_common: Path) -> None:
-    """Refuse a workspace this Relay installation is not bound to.
+    """Refuse a workspace this Multithread installation is not bound to.
 
     Raised before any mutation: no directory is created, no database is opened,
     and no failure log is written for a workspace we are about to reject.
@@ -2378,14 +2378,14 @@ def _assert_workspace_binding(actual_common: Path) -> None:
     expected = _expected_workspace_binding()
     if expected is None:
         raise StateError(
-            "Relay refuses an unbound workspace: no expected workspace binding "
+            "Multithread refuses an unbound workspace: no expected workspace binding "
             f"could be derived for the shipping package at {_PACKAGE_SOURCE_ROOT}; "
             f"the requested workspace resolved to {actual_common}"
         )
     if actual_common != expected:
         raise StateError(
-            "Relay refuses a foreign workspace: the requested workspace resolved to "
-            f"{actual_common} but this Relay is bound to {expected}"
+            "Multithread refuses a foreign workspace: the requested workspace resolved to "
+            f"{actual_common} but this Multithread is bound to {expected}"
         )
 
 
@@ -2395,12 +2395,12 @@ def _secure_state_dir(path: Path) -> None:
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
         path.chmod(0o700)
     except OSError as exc:
-        raise StateError(f"cannot create private Relay state directory {path}: {exc}") from exc
+        raise StateError(f"cannot create private Multithread state directory {path}: {exc}") from exc
     _assert_no_symlink_components(path)
 
 
 def _assert_no_symlink_components(path: Path) -> None:
-    """Refuse an existing symlink anywhere in an absolute Relay state path."""
+    """Refuse an existing symlink anywhere in an absolute Multithread state path."""
 
     absolute = Path(os.path.abspath(path))
     current = Path(absolute.anchor)
@@ -2412,9 +2412,9 @@ def _assert_no_symlink_components(path: Path) -> None:
         except FileNotFoundError:
             continue
         except OSError as exc:
-            raise StateError(f"cannot inspect Relay state path {current}: {exc}") from exc
+            raise StateError(f"cannot inspect Multithread state path {current}: {exc}") from exc
         if stat.S_ISLNK(mode):
-            raise StateError(f"Relay refuses symlinked state path component: {current}")
+            raise StateError(f"Multithread refuses symlinked state path component: {current}")
 
 
 def _chmod_private(path: Path) -> None:
@@ -2423,14 +2423,14 @@ def _chmod_private(path: Path) -> None:
         if current != 0o600:
             path.chmod(0o600)
     except OSError as exc:
-        raise StateError(f"cannot secure Relay state file {path}: {exc}") from exc
+        raise StateError(f"cannot secure Multithread state file {path}: {exc}") from exc
 
 
 def _translate_sqlite(exc: sqlite3.OperationalError) -> RelayError:
     message = str(exc)
     if "locked" in message.lower() or "busy" in message.lower():
-        return BusyError(f"Relay database is busy: {message}")
-    return StateError(f"Relay database operation failed: {message}")
+        return BusyError(f"Multithread database is busy: {message}")
+    return StateError(f"Multithread database operation failed: {message}")
 
 
 def _split_sql_script(script: str) -> list[str]:
@@ -2444,7 +2444,7 @@ def _split_sql_script(script: str) -> list[str]:
                 statements.append(statement)
             pending = ""
     if pending.strip():
-        raise StateError("Relay schema contains an incomplete SQL statement")
+        raise StateError("Multithread schema contains an incomplete SQL statement")
     return statements
 
 

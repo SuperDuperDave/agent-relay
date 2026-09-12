@@ -26,10 +26,10 @@ class SetupTests(unittest.TestCase):
         self.repo = self.base / "checkout 'quote' 雪 ;$(touch injected)"
         self.repo.mkdir()
         self.account = self.base / "account"
-        self.launcher = str(self.account / ".local/bin/relay")
+        self.launcher = str(self.account / ".local/bin/multithread")
         self.commands = []
         self.responses = {}
-        self.runtime = {"installed": True, "launcher": self.launcher,
+        self.runtime = {"installed": True, "launcher": self.launcher, "preferred_command_available": True,
                         "activation": {"activation_id": "a" * 32, "release_id": "b" * 64}}
         self.doctor = {"ok": True, "integrity": "ok", "repo_root": str(self.repo),
                        "git_common_dir": str(self.repo / ".git"), "database": str(self.repo / "ledger.db")}
@@ -94,7 +94,7 @@ class SetupTests(unittest.TestCase):
 
     def test_unhealthy_runtime_stops_before_enrollment_or_repository(self):
         for value in ({}, {"installed": False, "launcher": self.launcher, "activation": None},
-                      {**self.runtime, "launcher": "/unrelated/relay"},
+                      {**self.runtime, "launcher": "/unrelated/multithread"},
                       {**self.runtime, "activation": {"release_id": "invalid", "activation_id": "a" * 32}}):
             self.commands.clear()
             self.responses["runtime"] = (0, json.dumps(value).encode(), b"")
@@ -103,6 +103,20 @@ class SetupTests(unittest.TestCase):
             self.assertEqual("not_ready", result["runtime"]["state"])
             self.assertEqual("not_checked", result["repository"]["state"])
             self.assertEqual(1, len(self.commands))
+
+    def test_missing_preferred_command_stops_before_enrollment_or_provider_preparation(self):
+        observed = {**self.runtime, "preferred_command_available": False}
+        self.responses["runtime"] = (0, json.dumps(observed).encode(), b"")
+        for extra in (("--check",), ("--apply",)):
+            self.commands.clear()
+            with mock.patch.object(setup.provider, "prepare") as prepare:
+                code, result = self.invoke(*extra)
+            self.assertEqual(1, code)
+            self.assertEqual("not_ready", result["runtime"]["state"])
+            self.assertEqual(observed, result["runtime"]["data"])
+            self.assertEqual("not_checked", result["repository"]["state"])
+            self.assertEqual([[self.launcher, "runtime", "status"]], self.commands)
+            prepare.assert_not_called()
 
     def test_failed_command_keeps_diagnostic_and_exact_command_separate_from_unavailability(self):
         self.responses["doctor"] = (1, b"", b"synthetic enrollment refusal\n")

@@ -58,7 +58,7 @@ class ProviderHookTests(unittest.TestCase):
         self.assertEqual(event, output["hookEventName"])
         context = output["additionalContext"]
         self.assertIsInstance(context, str)
-        self.assertIn("RELAY BRIEF v1", context)
+        self.assertIn("MULTITHREAD BRIEF v1", context)
         self.assertIn(client, context)
         self.assertIn(session, context)
         self.assertLessEqual(len(context.encode("utf-8")), 8192)

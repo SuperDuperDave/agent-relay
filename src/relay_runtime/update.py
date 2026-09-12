@@ -59,7 +59,7 @@ class _Redirect(urllib.request.HTTPRedirectHandler):
 
 
 def download(url, limit):
-    request = urllib.request.Request(_https(url), headers={"User-Agent": "Agent-Relay-release-installer"})
+    request = urllib.request.Request(_https(url), headers={"User-Agent": "Multithread-release-installer"})
     try:
         with urllib.request.build_opener(_Redirect()).open(request, timeout=30) as response:
             _https(response.url)
@@ -194,7 +194,7 @@ def _platform():
 
 
 def _parser(install):
-    parser = argparse.ArgumentParser(prog="install.py" if install else "relay update",
+    parser = argparse.ArgumentParser(prog="install.py" if install else "multithread update",
         description="Review one public release, then explicitly install using its exact-state offline bootstrap.")
     parser.add_argument("--check", action="store_true", help="report selection without installing or enrolling")
     parser.add_argument("--json", action="store_true", help="structured report; check only unless --yes is also supplied")
@@ -231,7 +231,7 @@ def _run(argv, *, install):
             raise UpdateError("Candidate differs from the explicitly approved runtime digest.")
         result["candidate"] = {k: release[k] for k in ("version", "source_commit", "release_id", "archive_sha256")}
         result["source_url"] = f"{PROJECT}/tree/{release['source_commit']}"
-        launcher = Path(pwd.getpwuid(os.getuid()).pw_dir) / ".local/bin/relay"
+        launcher = Path(pwd.getpwuid(os.getuid()).pw_dir) / ".local/bin/multithread"
         # The installed dispatch has verified this launcher; the standalone
         # installer must instead let the incoming bootstrap inspect any command.
         current = None if install else _command([str(launcher), "runtime", "status"])
@@ -248,12 +248,12 @@ def _run(argv, *, install):
                 result["check_command"] = shlex.join([str(launcher), "setup", "--repo", str(args.repo), "--check"])
             if args.repo is not None and not args.check and (args.yes or not args.json):
                 if args.yes and not (args.version and args.approve_sha256 and args.expected_activation):
-                    raise UpdateError("Unattended repository enrollment requires the exact approved update selection, or use relay setup --apply.")
+                    raise UpdateError("Unattended repository enrollment requires the exact approved update selection, or use multithread setup --apply.")
                 if args.expected_activation and args.expected_activation != current["activation"]["activation_id"]:
                     raise UpdateError("Activation changed since your observation; no repository setup was attempted.")
                 result["launcher"] = str(launcher)
                 if not args.yes:
-                    print(f"Relay is already up to date. Explicitly enroll/check {args.repo}; provider settings stay unchanged.")
+                    print(f"Multithread is already up to date. Explicitly enroll/check {args.repo}; provider settings stay unchanged.")
                     if not sys.stdin.isatty():
                         result.update(state="needs_attention", repository="not_checked",
                             message="Repository setup was requested but not approved. Run the exact setup command.",
@@ -280,22 +280,22 @@ def _run(argv, *, install):
                 result["apply_command"] = shlex.join(result["apply_argv"])
             return _finish(result, args)
         if not install and args.yes and not (args.version and args.approve_sha256 and args.expected_activation):
-            raise UpdateError("For unattended updates, first inspect relay update --json and use its exact apply_command.")
+            raise UpdateError("For unattended updates, first inspect multithread update --json and use its exact apply_command.")
         if not install and not args.yes:
             # Approve newly fetched publisher code before the incoming bootstrap
             # is ever executed. The existing verified launcher supplies current
             # identity; the incoming plan must later match that same snapshot.
-            print(f"Update Relay {current['activation']['version']} → {release['version']}\nSource: {result['source_url']}\nRuntime: {release['release_id'][:12]}…\nLauncher: {launcher}\nCurrent activation: {current['activation']['activation_id']}")
+            print(f"Update Multithread {current['activation']['version']} → {release['version']}\nSource: {result['source_url']}\nRuntime: {release['release_id'][:12]}…\nLauncher: {launcher}\nCurrent activation: {current['activation']['activation_id']}")
             print(f"Repository enrollment: {args.repo or 'not requested'}. Provider settings stay unchanged.")
             print("Approve this publisher's release before running its installer. Checksums bind bytes, not publisher authenticity.")
             print("Running workers keep loaded code; subsequent commands use this selection. Check release compatibility before updating active work.")
             if not sys.stdin.isatty():
-                raise UpdateError("Run interactively to approve, or inspect relay update --json for an exact apply command.")
+                raise UpdateError("Run interactively to approve, or inspect multithread update --json for an exact apply command.")
             if input("Type install to apply this selection: ").strip() != "install":
                 result.update(state="cancelled", stage="not_applied")
                 return _finish(result, args)
         result["stage"] = "package_verification"
-        print(f"Relay: checking release {release['version']}…", file=sys.stderr, flush=True)
+        print(f"Multithread: checking release {release['version']}…", file=sys.stderr, flush=True)
         with tempfile.TemporaryDirectory(prefix="relay-download-") as temporary:
             directory = Path(temporary)
             body = download(f"{PROJECT}/releases/download/v{release['version']}/{release['archive']}", MAX_ARCHIVE)
@@ -317,14 +317,14 @@ def _run(argv, *, install):
                     raise UpdateError("Activation changed after planning; inspect before retrying.")
                 old = re.match(r"([0-9]+)\.([0-9]+)\.([0-9]+)(?:$|[-+])", observed["activation"]["version"])
                 if old and tuple(map(int, old.groups())) > tuple(map(int, release["version"].split("."))):
-                    raise UpdateError("This installer is older than the active version; use relay update or deliberate rollback.")
+                    raise UpdateError("This installer is older than the active version; use multithread update or deliberate rollback.")
             elif expected is not None:
                 raise UpdateError("Active installation became unavailable after planning.")
-            print(f"Relay: selected {release['version']}; exact current activation {expected or 'none'}; repository enrollment {args.repo or 'not requested'}.", file=sys.stderr, flush=True)
+            print(f"Multithread: selected {release['version']}; exact current activation {expected or 'none'}; repository enrollment {args.repo or 'not requested'}.", file=sys.stderr, flush=True)
             if expected is not None and observed["activation"]["release_id"] != release["release_id"]:
-                print("Relay: running workers keep loaded code; subsequent commands use the new release. Preserve active coordination and follow release compatibility guidance.", file=sys.stderr, flush=True)
+                print("Multithread: running workers keep loaded code; subsequent commands use the new release. Preserve active coordination and follow release compatibility guidance.", file=sys.stderr, flush=True)
             if install and not args.yes:
-                print(f"Relay {release['version']}\nSource: {result['source_url']}\nRuntime: {release['release_id'][:12]}…\nLauncher: {plan['launcher']}\nCurrent activation: {expected or 'none'}")
+                print(f"Multithread {release['version']}\nSource: {result['source_url']}\nRuntime: {release['release_id'][:12]}…\nLauncher: {plan['launcher']}\nCurrent activation: {expected or 'none'}")
                 print(f"Repository setup: {args.repo or 'not requested'}\nProvider sign-ins/settings and permissions stay unchanged.")
                 print("Running workers keep loaded code; subsequent commands use this selection. Finish active coordination before updating between incompatible releases.")
                 print("Approve this publisher's release. Checksums bind the selected bytes; they are not a publisher signature.")
@@ -397,7 +397,7 @@ def _finish(result, args, code=0):
     if args.json:
         print(json.dumps(result, sort_keys=True))
     else:
-        print(f"Relay: {result['state'].replace('_', ' ')}")
+        print(f"Multithread: {result['state'].replace('_', ' ')}")
         if result.get("message"):
             print(result["message"])
             if result.get("inspect_command"):
@@ -412,7 +412,7 @@ def _finish(result, args, code=0):
             launcher = result["launcher"]
             if result["state"] != "setup_checked":
                 print("Next: " + (result.get("check_command") or shlex.join([launcher, "setup", "--apply", "--repo", str(args.repo or Path.cwd())])))
-            print("Use the exact launcher path above if relay is not on PATH; shell configuration was not edited.")
+            print("Use the exact launcher path above if multithread is not on PATH; shell configuration was not edited.")
         if isinstance(result.get("repository"), dict):
             for action in result["repository"].get("next_actions", []):
                 if isinstance(action, dict):

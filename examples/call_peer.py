@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Source entry for the native peer helper; installed users run relay peer."""
+"""Source entry for the native peer helper; installed users run multithread peer."""
 
 from pathlib import Path
 import sys

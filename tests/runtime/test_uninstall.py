@@ -86,7 +86,10 @@ class UninstallTests(unittest.TestCase):
         self.assertEqual(first, self.distribution.uninstall_plan())
         self.assertEqual("ready", first["state"])
         self.assertEqual([], first["writes"])
-        self.assertEqual(len(subject.PAYLOAD_FILES) + 12, len(first["targets"]))
+        self.assertEqual(len(subject.PAYLOAD_FILES) + 13, len(first["targets"]))
+        self.assertEqual({("multithread", "alias"), ("relay", "selector")},
+                         {(entry["path"], entry["kind"]) for entry in first["targets"]
+                          if entry["area"] == "bin"})
         self.assertEqual(before, snapshot(self.base))
 
     def test_removes_actual_code_and_selectors_preserves_data_then_reinstalls(self):
@@ -204,9 +207,11 @@ class UninstallTests(unittest.TestCase):
         self.install()
         plan = self.distribution.uninstall_plan()
         command = self.distribution.bin_directory / "relay"
+        alias = self.distribution.bin_directory / "multithread"
         observed = {}
         def replace(stage):
-            if stage == "before-uninstall-stage" and not observed:
+            # Target the selector's check/rename window, after alias removal.
+            if stage == "before-uninstall-stage" and not alias.is_symlink() and not observed:
                 command.unlink()
                 command.write_bytes(b"foreign replacement must not be deleted")
                 observed["info"] = command.stat()

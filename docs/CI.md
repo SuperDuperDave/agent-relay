@@ -106,4 +106,4 @@ tested commit. A cancelled, skipped, partial or never-started job is not a pass.
 
 Fork pull requests run only on disposable GitHub-hosted runners with the limited
 permissions above. Do not move untrusted contribution jobs onto a persistent
-self-hosted machine holding live workspaces, credentials or Relay state.
+self-hosted machine holding live workspaces, credentials or Multithread state.

@@ -1,4 +1,4 @@
-"""Linux file-object write confinement for a fresh Relay worker only."""
+"""Linux file-object write confinement for a fresh Multithread worker only."""
 
 import ctypes
 import os

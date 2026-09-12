@@ -1,6 +1,6 @@
 # Move an enrolled repository — development preview
 
-Rebind updates Relay's account-owned binding after an explicitly planned,
+Rebind updates Multithread's account-owned binding after an explicitly planned,
 same-filesystem move. It does not copy a ledger, initialize a replacement,
 repair Git pointers, release claims or acknowledge pending work.
 
@@ -13,12 +13,12 @@ enough.
 ## Before moving
 
 1. Use a reviewed installed runtime that supports this binding protocol.
-2. Stop all Relay commands and provider processes using this enrollment,
+2. Stop all Multithread commands and provider processes using this enrollment,
    including those in linked worktrees. Prevent automatic hooks from restarting.
 3. Record the old absolute main-checkout path. Move the checkout or its parent
    with your normal filesystem tools, preserving its objects and permissions.
 4. If linked worktrees need Git pointer repair, complete that explicitly with
-   Git before resuming those peers. Relay does not perform it.
+   Git before resuming those peers. Multithread does not perform it.
 
 The --confirm-quiescent flag records your acknowledgement of step 2. It cannot
 prove that processes have stopped, terminate old workers or undo committed
@@ -31,7 +31,7 @@ placeholders, not literal values to paste.
 ## Inspect, then approve one binding
 
 ```sh
-~/.local/bin/relay --repo NEW_ROOT rebind-plan --from-repo OLD_ROOT
+~/.local/bin/multithread --repo NEW_ROOT rebind-plan --from-repo OLD_ROOT
 ```
 
 The plan is read-only. It verifies the old binding, absent old path, new main
@@ -41,7 +41,7 @@ write targets and expected_binding. The observation digest is not a secret,
 credential or independent authorization.
 
 ```sh
-~/.local/bin/relay --repo NEW_ROOT rebind --from-repo OLD_ROOT \
+~/.local/bin/multithread --repo NEW_ROOT rebind --from-repo OLD_ROOT \
   --expected-binding BINDING_OBSERVATION --confirm-quiescent
 ```
 
@@ -57,9 +57,9 @@ active position or delete records to force a retry.
 Afterward, use ordinary installed commands to check the actual ledger:
 
 ```sh
-~/.local/bin/relay --repo NEW_ROOT doctor
-~/.local/bin/relay --repo NEW_ROOT status
-~/.local/bin/relay --repo NEW_ROOT events
+~/.local/bin/multithread --repo NEW_ROOT doctor
+~/.local/bin/multithread --repo NEW_ROOT status
+~/.local/bin/multithread --repo NEW_ROOT events
 ```
 
 Verify the expected pending work and owners before resuming providers.

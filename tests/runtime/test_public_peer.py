@@ -48,7 +48,7 @@ for name in names:
     if name in ("SessionStart", "UserPromptSubmit"):
         context = json.loads(completed.stdout)["hookSpecificOutput"]
         assert context["hookEventName"] == name
-        assert "RELAY AGENT CONTRACT v1" in context["additionalContext"]
+        assert "MULTITHREAD AGENT CONTRACT v1" in context["additionalContext"]
         assert args.session_id in context["additionalContext"]
         assert "Preserve this pending handoff" in context["additionalContext"]
         contexts[name] = context["additionalContext"]
@@ -95,7 +95,7 @@ def hook(event):
     assert result.returncode == 0 and not result.stderr, result
     if event in ('SessionStart', 'UserPromptSubmit'):
         context = json.loads(result.stdout)['hookSpecificOutput']['additionalContext']
-        assert 'RELAY AGENT CONTRACT v1' in context and session in context
+        assert 'MULTITHREAD AGENT CONTRACT v1' in context and session in context
 
 def emit(value): print(json.dumps(value), flush=True)
 
@@ -139,6 +139,7 @@ else:
 
 _PEER = profile._COMMON + "\nprovider_source = " + repr(_FAKE_PROVIDER) + "\nstream_source = " + repr(_STREAM_PROVIDER) + r"""
 assert not pathlib.Path("/source").exists() and not pathlib.Path("/bundle").exists()
+launcher = home / ".local/bin/multithread"
 base = [str(launcher), "--repo", str(project), "--json"]
 git_env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null",
                GIT_CONFIG_SYSTEM="/dev/null", GIT_TERMINAL_PROMPT="0",
@@ -195,7 +196,7 @@ assert peer["workflow_completion"] == "not_checked"
 assert peer["relay_acknowledgement"] == "not_checked"
 assert peer["hook_delivery"] == peer["provider_tools"] == "unknown"
 assert str(evidence) == peer["evidence_directory"]
-assert "relay peer: session " + peer["session_id"] in completed.stderr
+assert "multithread peer: session " + peer["session_id"] in completed.stderr
 assert pathlib.Path("/tmp/fake-native-task.txt").read_bytes() == task
 assert (evidence / "task.txt").read_bytes() == task
 assert json.loads((evidence / "result.json").read_text()) == peer

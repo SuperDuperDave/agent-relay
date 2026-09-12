@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Source compatibility entry; installed users can run relay launch instead."""
+"""Source compatibility entry; installed users can run multithread launch instead."""
 
 from pathlib import Path
 import sys

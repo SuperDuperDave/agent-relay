@@ -42,7 +42,7 @@ if mode == 'install':
                               run_name='pinned_release_fixture')
     raise SystemExit(namespace['install_main'](arguments))
 assert mode == 'update'
-launcher = pathlib.Path(pwd.getpwuid(__import__('os').getuid()).pw_dir) / '.local/bin/relay'
+launcher = pathlib.Path(pwd.getpwuid(__import__('os').getuid()).pw_dir) / '.local/bin/multithread'
 tokens = shlex.split(launcher.read_text(), comments=True)
 assert tokens[:6] == ['exec', '/usr/bin/python3', '-I', '-S', '-B', '-c']
 assert tokens[-1] == '$@' and len(tokens) == 12
