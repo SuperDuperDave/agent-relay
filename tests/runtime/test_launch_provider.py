@@ -372,9 +372,28 @@ class LaunchProviderTests(unittest.TestCase):
         self.assertNotIn("\x1b", output)
         self.assertNotIn("\u202e", output)
         self.assertIn("checkout\\n\\u001b[2J\\u202e", output)
-        line = next(line for line in output.splitlines() if line.startswith("Hook command (JSON argv): "))
-        self.assertEqual(shlex.split(plan["hook_command"]), json.loads(line.split(": ", 1)[1]))
+        line = next(line for line in output.splitlines() if line.startswith("Hook command (JSON string): "))
+        self.assertEqual(plan["hook_command"], json.loads(line.split(": ", 1)[1]))
         call.assert_called_once_with([str(self.provider), *plan["native_arguments"]], cwd=str(self.repo))
+
+    def test_review_preserves_accepted_literal_hook_spacing_for_native_trust(self):
+        for client in ("codex", "claude"):
+            plan = self.configuration(client)
+            original = plan["hook_command"]
+            hook = original.replace(" --repo ", "  --repo  ")
+            plan["hook_command"] = hook
+            plan["native_arguments"] = [
+                argument.replace(json.dumps(original, ensure_ascii=False),
+                                 json.dumps(hook, ensure_ascii=False))
+                for argument in plan["native_arguments"]]
+            with (self.subTest(client=client),
+                  mock.patch.object(launch.subprocess, "run", return_value=self.mocked_result(plan)),
+                  mock.patch.object(launch.subprocess, "call", return_value=0) as call):
+                status, output, errors, _ = self.invoke(client=client, json_output=False, interactive=True)
+            self.assertEqual(0, status, errors)
+            line = next(line for line in output.splitlines() if line.startswith("Hook command: "))
+            self.assertEqual("Hook command: " + hook, line)
+            call.assert_called_once_with([str(self.provider), *plan["native_arguments"]], cwd=str(self.repo))
 
     def test_relay_failure_and_timeout_keep_observation_unknown_and_do_not_retry(self):
         cases = (self.mocked_result(returncode=7),

@@ -161,7 +161,13 @@ def _display_launch(plan):
     # their enforced shape, not optional descriptive fields in the plan.
     print("Invocation hooks: " + ", ".join(_hook_events(plan["provider"])))
     print("Each hook runs the following command with a 3-second timeout:")
-    _display_command("Hook command", shlex.split(plan["relay_plan"]["hook_command"]))
+    hook_command = plan["relay_plan"]["hook_command"]
+    # Native trust may identify literal hook text. Do not normalize accepted
+    # whitespace or quoting when presenting the command to be reviewed.
+    if hook_command.isprintable():
+        print("Hook command: " + hook_command)
+    else:
+        print("Hook command (JSON string): " + json.dumps(hook_command, ensure_ascii=True))
     print("Hook delivery and provider tools: unknown until observed in the native session.")
     print("Existing provider settings and permissions remain in effect. Native hook trust is a separate step.")
     print("Use launch --json with the same options to inspect the complete invocation plan without starting a provider.")
