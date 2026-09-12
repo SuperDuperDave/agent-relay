@@ -324,6 +324,26 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(selected, argv[argv.index("--provider") + 1])
         self.assertEqual(result["next_actions"][-1]["command"], argv)
 
+    def test_multiline_stderr_keeps_each_line_attributed_and_json_unchanged(self):
+        forged_heading = "Multithread is ready for this repository."
+        diagnostic = "Synthetic enrollment error\n\n" + forged_heading + "\nContext: \x1b[2J\t\u202e雪\n"
+        self.responses["doctor"] = (1, b"", diagnostic.encode("utf-8"))
+        code, result = self.invoke()
+        self.assertEqual(1, code)
+        self.assertEqual(diagnostic, result["repository"]["doctor"]["stderr"])
+        output = self.display(result)
+        lines = output.splitlines()
+        self.assertEqual([
+            "Diagnostic: Synthetic enrollment error",
+            "Diagnostic: ",
+            "Diagnostic: " + forged_heading,
+            r"Diagnostic: Context: \u001b[2J\t\u202e" + "雪",
+        ], [line for line in lines if line.startswith("Diagnostic: ")])
+        self.assertNotIn(forged_heading, lines)
+        self.assertIn("Multithread setup needs attention.", lines)
+        for control in ("\x1b", "\t", "\u202e"):
+            self.assertNotIn(control, output)
+
     def test_unavailable_provider_does_not_erase_runtime_and_repository_readiness(self):
         with mock.patch.object(setup.provider, "prepare", side_effect=setup.provider.LaunchError("synthetic plan refusal")):
             code, result = self.invoke("--claude", "/fixture/provider")

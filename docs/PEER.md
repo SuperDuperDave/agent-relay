@@ -338,6 +338,16 @@ Independent ledger inspection found no active claims, including the released
 Codex claim; no handoff acknowledgement was due for that follow-up.
 These observations do not establish installed-native v0.3 support.
 
+An ordinary development review used the installed public v0.4.0 `multithread peer`
+command with Claude Code 2.1.269 on the existing WSL2/ext4 developer profile.
+Claude reviewed a frozen setup-clarity candidate, wrote a review artifact and
+acknowledged its exact commit handoff. A scoped input sent during the review was
+recorded as consumed and covered by the matching native result. The answer
+returned automatically in 772 seconds and 44 provider-reported turns, with no
+reported permission denials. The caller checked the artifact and ledger and
+addressed the verified findings. This observes useful installed v0.4 collaboration;
+it is not a native run of the resulting v0.4.1 candidate or a fresh-user setup test.
+
 These observations do not establish independent onboarding, broad reliability,
 net usage savings or waking an independently idle task. The source-absent
 installation checks remain separate from the normal native runs, which did not

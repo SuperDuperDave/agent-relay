@@ -243,7 +243,8 @@ def _display(report):
         if entry.get("message"):
             print(text(entry["message"]))
         if entry.get("stderr"):
-            print("Diagnostic: " + text(entry["stderr"].rstrip()))
+            for line in entry["stderr"].splitlines():
+                print("Diagnostic: " + text(line))
         if entry.get("stderr_truncated") or entry.get("stdout_truncated"):
             print("Diagnostic output was truncated; run the exact check above for details.")
 

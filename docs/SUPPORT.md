@@ -58,6 +58,11 @@ They include native artifacts from interrupted calls and do not establish
 installed-native v0.3 support. The earlier v0.2.0 release retains its
 separate installed Claude call/return and exact-session resume evidence.
 
+An ordinary installed v0.4.0 development review with Claude Code 2.1.269 also
+returned a review artifact, acknowledged its exact handoff and consumed a live
+input. Its [scope and measurements](PEER.md#coordination-and-verification-scope)
+do not establish native v0.4.1 execution or independent onboarding.
+
 ## Diagnose without changing live configuration
 
 Start with `~/.local/bin/multithread setup --check --repo /absolute/checkout` for a
