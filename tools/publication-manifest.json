@@ -105,6 +105,12 @@
       "reason": "synthetic-test-fixture"
     },
     {
+      "path": "tests/runtime/test_public_setup.py",
+      "rule": "email-address",
+      "line_sha256": "15c9f9307d5ec267ef235ba6501b93dbaeec28f30f55a68ffd7014811db978ff",
+      "reason": "synthetic-test-fixture"
+    },
+    {
       "path": "tests/runtime/test_update.py",
       "rule": "email-address",
       "line_sha256": "2085956cbbeed42a1066719e60de8cce977dbaf7b8e2eccd375f559339b5c935",

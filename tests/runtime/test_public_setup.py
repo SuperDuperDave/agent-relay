@@ -63,7 +63,7 @@ assert not pathlib.Path('/source').exists() and not pathlib.Path('/bundle').exis
 base = [str(compatibility_launcher), '--repo', str(project), '--json']
 call(base + ['init'])
 git = ['/usr/bin/git', '-C', str(project), '-c', 'core.hooksPath=/dev/null',
-       '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+       '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',  # synthetic alias-refusal identity
        '-c', 'commit.gpgsign=false']
 subprocess.run(git + ['commit', '--allow-empty', '-qm', 'Synthetic alias refusal witness'], check=True)
 call(base + ['claim', 'code:alias', '--agent', 'codex', '--session', 'alias-owner',
