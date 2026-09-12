@@ -1,0 +1,273 @@
+"""Readiness composition and partial-success boundaries; no provider execution."""
+
+from contextlib import redirect_stdout
+import io
+import json
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+from relay_runtime import setup
+
+
+class SetupTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="relay-setup-test-")
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name)
+        self.repo = self.base / "checkout 'quote' 雪 ;$(touch injected)"
+        self.repo.mkdir()
+        self.account = self.base / "account"
+        self.launcher = str(self.account / ".local/bin/relay")
+        self.commands = []
+        self.responses = {}
+        self.runtime = {"installed": True, "launcher": self.launcher,
+                        "activation": {"activation_id": "a" * 32, "release_id": "b" * 64}}
+        self.doctor = {"ok": True, "integrity": "ok", "repo_root": str(self.repo),
+                       "git_common_dir": str(self.repo / ".git"), "database": str(self.repo / "ledger.db")}
+        self.status = {"database": self.doctor["database"], "last_seq": 7,
+                       "active_claims": [{"resource": "fixture", "owner": "preserve"}],
+                       "recent_signals": [{"seq": 7, "kind": "work.handoff"}]}
+        for target, value in (("runtime", self.runtime), ("doctor", self.doctor),
+                              ("status", self.status), ("init", {"ok": True, "initialized": True})):
+            self.responses[target] = (0, json.dumps(value).encode(), b"")
+        for patcher in (
+            mock.patch.object(setup.pwd, "getpwuid", return_value=mock.Mock(pw_dir=str(self.account))),
+            mock.patch.object(setup.subprocess, "run", side_effect=self.run_command),
+            mock.patch.object(setup.shutil, "which", return_value=None),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def run_command(self, command, **options):
+        self.commands.append(command)
+        self.assertEqual(subprocess.DEVNULL, options["stdin"])
+        self.assertNotIn("shell", options)
+        self.assertNotIn("env", options)
+        self.assertNotIn("input", options)
+        key = "runtime" if command[1:3] == ["runtime", "status"] else command[-1]
+        response = self.responses[key]
+        if isinstance(response, Exception):
+            raise response
+        code, output, errors = response
+        options["stdout"].write(output)
+        options["stderr"].write(errors)
+        return subprocess.CompletedProcess(command, code)
+
+    def invoke(self, *extra):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = setup.setup_main(["--repo", str(self.repo), "--json", *extra])
+        return code, json.loads(output.getvalue())
+
+    def test_default_and_check_read_existing_work_without_init_or_provider_execution(self):
+        for extra in ((), ("--check",)):
+            self.commands.clear()
+            with mock.patch.object(setup.provider, "prepare") as prepare:
+                code, result = self.invoke(*extra)
+            self.assertEqual(0, code)
+            self.assertEqual("ready", result["state"])
+            self.assertEqual(self.status, result["repository"]["status"]["data"])
+            self.assertEqual(["status", "doctor", "status"], [command[-1] for command in self.commands])
+            self.assertTrue(all(command[0] == self.launcher for command in self.commands))
+            self.assertEqual("missing", result["providers"]["claude"]["state"])
+            self.assertFalse(result["provider_started"])
+            self.assertEqual("unknown", result["hook_delivery"])
+            self.assertEqual("unknown", result["provider_tools"])
+            self.assertEqual("unknown", result["provider_authentication"])
+            prepare.assert_not_called()
+
+    def test_apply_explicitly_initializes_once_then_reads_and_preserves_work(self):
+        code, result = self.invoke("--apply")
+        self.assertEqual(0, code)
+        self.assertEqual(["status", "init", "doctor", "status"], [command[-1] for command in self.commands])
+        self.assertEqual("verified", result["repository"]["enrollment"]["state"])
+        self.assertEqual(self.status, result["repository"]["status"]["data"])
+
+    def test_unhealthy_runtime_stops_before_enrollment_or_repository(self):
+        for value in ({}, {"installed": False, "launcher": self.launcher, "activation": None},
+                      {**self.runtime, "launcher": "/unrelated/relay"},
+                      {**self.runtime, "activation": {"release_id": "invalid", "activation_id": "a" * 32}}):
+            self.commands.clear()
+            self.responses["runtime"] = (0, json.dumps(value).encode(), b"")
+            code, result = self.invoke("--apply")
+            self.assertEqual(1, code)
+            self.assertEqual("not_ready", result["runtime"]["state"])
+            self.assertEqual("not_checked", result["repository"]["state"])
+            self.assertEqual(1, len(self.commands))
+
+    def test_failed_command_keeps_diagnostic_and_exact_command_separate_from_unavailability(self):
+        self.responses["doctor"] = (1, b"", b"synthetic enrollment refusal\n")
+        code, result = self.invoke()
+        self.assertEqual(1, code)
+        doctor = result["repository"]["doctor"]
+        self.assertEqual("failed", doctor["state"])
+        self.assertEqual("synthetic enrollment refusal\n", doctor["stderr"])
+        self.assertEqual([self.launcher, "--repo", str(self.repo), "--json", "doctor"], doctor["command"])
+        self.responses["doctor"] = OSError("artificial unavailable command")
+        code, result = self.invoke()
+        self.assertEqual(1, code)
+        self.assertEqual("unavailable", result["repository"]["doctor"]["state"])
+
+    def test_apply_failed_command_retains_verified_runtime_and_independent_healthy_reads(self):
+        self.responses["init"] = (1, b"", b"synthetic refused enrollment\n")
+        code, result = self.invoke("--apply")
+        self.assertEqual(1, code)
+        self.assertEqual("verified", result["runtime"]["state"])
+        self.assertEqual("failed", result["repository"]["enrollment"]["state"])
+        self.assertEqual("verified", result["repository"]["doctor"]["state"])
+        self.assertEqual("verified", result["repository"]["status"]["state"])
+        self.assertEqual(1, sum(command[-1] == "init" for command in self.commands))
+        self.assertIn("--check", result["next_actions"][-1]["command"])
+
+    def test_nonzero_exit_does_not_claim_a_specific_refusal_cause(self):
+        for exit_code, diagnostic in ((1, b"synthetic partial initialization\n"),
+                                      (2, b"synthetic malformed request\n"),
+                                      (3, b"synthetic coordination refusal\n")):
+            with self.subTest(exit_code=exit_code):
+                self.responses["init"] = (exit_code, b"", diagnostic)
+                code, result = self.invoke("--apply")
+                enrollment = result["repository"]["enrollment"]
+                self.assertEqual(1, code)
+                self.assertEqual("failed", enrollment["state"])
+                self.assertEqual(exit_code, enrollment["exit_code"])
+                self.assertEqual(diagnostic.decode(), enrollment["stderr"])
+
+    def test_unverified_zero_exit_initialization_is_uncertain_with_independent_reads_preserved(self):
+        for output in (b"not json", b"[]", b"{}", b'{"ok":true}',
+                       b'{"ok":false,"initialized":true}',
+                       b" " * (setup._MAX_OUTPUT + 1)):
+            with self.subTest(output=output[:40]):
+                self.commands.clear()
+                self.responses["init"] = (0, output, b"")
+                code, result = self.invoke("--apply")
+                self.assertEqual(1, code)
+                self.assertEqual("uncertain", result["repository"]["enrollment"]["state"])
+                self.assertEqual("uncertain", result["repository"]["state"])
+                self.assertEqual("verified", result["repository"]["doctor"]["state"])
+                self.assertEqual("verified", result["repository"]["status"]["state"])
+                self.assertEqual(1, sum(command[-1] == "init" for command in self.commands))
+                self.assertIn("--check", result["next_actions"][-1]["command"])
+
+    def test_timed_out_enrollment_is_uncertain_and_never_retried(self):
+        self.responses["init"] = subprocess.TimeoutExpired([self.launcher], 30)
+        code, result = self.invoke("--apply")
+        self.assertEqual(1, code)
+        self.assertEqual("uncertain", result["repository"]["enrollment"]["state"])
+        self.assertEqual(1, sum(command[-1] == "init" for command in self.commands))
+        self.assertEqual("verified", result["repository"]["doctor"]["state"])
+
+    def test_zero_exit_does_not_certify_failed_integrity_or_unreadable_output(self):
+        for output, state in ((json.dumps({**self.doctor, "ok": False}).encode(), "not_ready"),
+                              (json.dumps({**self.doctor, "integrity": "bad"}).encode(), "not_ready"),
+                              (b"[]", "unavailable"), (b"not json", "unavailable")):
+            self.responses["doctor"] = (0, output, b"")
+            code, result = self.invoke()
+            self.assertEqual(1, code)
+            self.assertEqual(state, result["repository"]["doctor"]["state"])
+
+    def test_invalid_utf8_in_otherwise_valid_json_is_diagnostic_not_verified_evidence(self):
+        for command, payload, state in (("doctor", self.doctor, "unavailable"),
+                                         ("init", {"ok": True, "initialized": True}, "uncertain")):
+            with self.subTest(command=command):
+                before = self.responses[command]
+                output = json.dumps(payload).encode()[:-1] + b', "synthetic_text": "\xff"}'
+                self.responses[command] = (0, output, b"")
+                code, result = self.invoke("--apply")
+                self.responses[command] = before
+                observed = result["repository"]["enrollment" if command == "init" else "doctor"]
+                self.assertEqual(1, code)
+                self.assertEqual(state, observed["state"])
+                self.assertTrue(observed["stdout_decoding_loss"])
+                self.assertIn("\ufffd", observed["stdout"])
+                self.assertNotIn("data", observed)
+                if command == "init":
+                    self.assertEqual("verified", result["repository"]["doctor"]["state"])
+                    self.assertEqual("verified", result["repository"]["status"]["state"])
+
+    def test_mismatched_status_database_is_not_repository_readiness(self):
+        self.responses["status"] = (0, json.dumps({**self.status, "database": "/another/ledger"}).encode(), b"")
+        code, result = self.invoke()
+        self.assertEqual(1, code)
+        self.assertEqual("not_ready", result["repository"]["status"]["state"])
+
+    def test_bounded_raw_output_is_marked_and_never_parsed_as_complete(self):
+        self.responses["doctor"] = (0, b" " * (setup._MAX_OUTPUT + 1), b"x" * (setup._MAX_OUTPUT + 1))
+        code, result = self.invoke()
+        doctor = result["repository"]["doctor"]
+        self.assertEqual(1, code)
+        self.assertEqual("unavailable", doctor["state"])
+        self.assertTrue(doctor["stdout_truncated"])
+        self.assertTrue(doctor["stderr_truncated"])
+        self.assertEqual(setup._MAX_OUTPUT, len(doctor["stdout"]))
+        self.assertEqual(setup._MAX_OUTPUT, len(doctor["stderr"]))
+
+    def test_observation_storage_failure_is_unavailable_without_running_command(self):
+        with mock.patch.object(setup.tempfile, "TemporaryFile", side_effect=OSError("synthetic disk unavailable")):
+            code, result = self.invoke("--apply")
+        self.assertEqual(1, code)
+        self.assertEqual("unavailable", result["runtime"]["state"])
+        self.assertEqual([], self.commands)
+
+    def test_provider_paths_only_prepare_plans_and_launch_command_is_quoted(self):
+        selected = self.base / "provider ;$(touch injected)"
+        def prepare(client, repo, launcher, path):
+            self.assertEqual(self.repo, repo)
+            self.assertEqual(Path(self.launcher), launcher)
+            self.assertEqual(selected, path)
+            return {"argv": [str(selected), "--settings", "{}"], "provider_started": False}
+        with mock.patch.object(setup.provider, "prepare", side_effect=prepare) as prepare_call:
+            code, result = self.invoke("--claude", str(selected))
+        self.assertEqual(0, code)
+        prepare_call.assert_called_once()
+        command = result["providers"]["claude"]["launch_command"]
+        self.assertEqual(str(selected), command[-1])
+        self.assertEqual(command, shlex.split(shlex.join(command)))
+        self.assertTrue(all(row[0] == self.launcher for row in self.commands))
+        self.assertFalse(result["changes_provider_settings"])
+        self.assertFalse(result["changes_permissions"])
+
+    def test_unavailable_provider_does_not_erase_runtime_and_repository_readiness(self):
+        with mock.patch.object(setup.provider, "prepare", side_effect=setup.provider.LaunchError("synthetic plan refusal")):
+            code, result = self.invoke("--claude", "/fixture/provider")
+        self.assertEqual(0, code)
+        self.assertEqual("ready", result["state"])
+        self.assertEqual("unavailable", result["providers"]["claude"]["state"])
+        self.assertEqual("synthetic plan refusal", result["providers"]["claude"]["message"])
+
+    def test_account_launcher_ignores_environment_home(self):
+        with mock.patch.dict(os.environ, {"HOME": "/unrelated-home", "XDG_DATA_HOME": "/unrelated-data"}):
+            code, result = self.invoke()
+        self.assertEqual(0, code)
+        self.assertEqual(self.launcher, result["launcher"])
+
+    def test_repo_symlink_components_reach_installed_boundary_unchanged(self):
+        alias = self.base / "repo-alias"
+        alias.symlink_to(self.repo)
+        with redirect_stdout(io.StringIO()):
+            setup.setup_main(["--repo", str(alias), "--json"])
+        self.assertEqual(str(alias), self.commands[1][2])
+
+    def test_human_output_gives_readiness_and_exact_next_actions(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = setup.setup_main(["--repo", str(self.repo)])
+        self.assertEqual(0, code)
+        self.assertIn("Runtime: verified", output.getvalue())
+        self.assertIn("Repository: verified", output.getvalue())
+        self.assertIn("does not edit PATH", output.getvalue())
+        self.assertIn("Launcher: " + self.launcher, output.getvalue())
+        self.assertIn("Git common directory: " + self.doctor["git_common_dir"], output.getvalue())
+        self.assertIn("not checked", output.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()

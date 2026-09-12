@@ -50,7 +50,9 @@ def _parser():
             config = action.add_parser("provider-config", help="print reviewed invocation arguments without installing settings or launching a provider")
             config.add_argument("--client", required=True, choices=("codex", "claude"))
             for name, description in (("launch", "review hooks and start an interactive native provider"),
-                                      ("peer", "call Claude and return its result to this task")):
+                                      ("peer", "call Claude and return its result to this task"),
+                                      ("setup", "check readiness or explicitly enroll this repository"),
+                                      ("update", "review and explicitly install a public release update")):
                 native = action.add_parser(name, help=description, add_help=False)
                 native.add_argument("--help", action="store_true", dest="native_help")
                 native.add_argument("provider_args", nargs=argparse.REMAINDER)
@@ -308,15 +310,32 @@ def main(argv=None, *, registry=None):
     raw = list(argv if argv is not None else sys.argv[1:])
     if "--json" in raw:
         raw = ["--json"] + [item for item in raw if item != "--json"]
-    args = _parser().parse_args(raw)
+    # Option-only helpers have no initial provider positional to make argparse's
+    # REMAINDER retain flags. Parse only their global prefix, then give their
+    # own parser the unchanged suffix (including unknown flags for diagnosis).
+    boundary = 0
+    while boundary < len(raw):
+        token = raw[boundary]
+        if token in {"--repo", "--home"}:
+            boundary += 2
+        elif token == "--json" or token.startswith(("--repo=", "--home=")):
+            boundary += 1
+        else:
+            break
+    helper = boundary < len(raw) and raw[boundary] in {"setup", "update"}
+    args = _parser().parse_args(raw[:boundary + 1] if helper else raw)
+    if helper:
+        args.provider_args = raw[boundary + 1:]
     try:
         if args.state_home is not None or "RELAY_HOME" in os.environ:
             raise StateError("installed Relay refuses state-directory overrides")
-        if args.command in {"launch", "peer"}:
+        if args.command in {"launch", "peer", "setup", "update"}:
             # Native providers retain their normal environment and sandbox stack.
             # Each helper obtains its config via a separate admitted ledger worker;
             # never launch a provider in the worker's closed environment/Landlock.
             from .provider import launch_main, peer_main
+            from .setup import setup_main
+            from .update import update_main
             forwarded = list(args.provider_args)
             if args.native_help:
                 forwarded += ["--help"]
@@ -324,7 +343,8 @@ def main(argv=None, *, registry=None):
                 forwarded += ["--repo", args.repo]
             if args.json:
                 forwarded += ["--json"]
-            return (launch_main if args.command == "launch" else peer_main)(forwarded)
+            return {"launch": launch_main, "peer": peer_main,
+                    "setup": setup_main, "update": update_main}[args.command](forwarded)
         if args.command == "provider-hook":
             args.provider_payload = _provider_input(args.client)
             if args.provider_payload is None:

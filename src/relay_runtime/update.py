@@ -1,0 +1,437 @@
+"""Explicit public-release acquisition; installation authority stays in bootstrap.
+
+The release packager also renders this stdlib-only file as a version-pinned
+installer. The standalone asset is a publisher trust root, not a signature.
+"""
+
+import argparse
+import gzip
+import hashlib
+import http.client
+import io
+import json
+import os
+from pathlib import Path, PurePosixPath
+import platform
+import pwd
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+
+
+PINNED_RELEASE = None
+PROJECT = "https://github.com/SuperDuperDave/agent-relay"
+MAX_ARCHIVE = 8 * 1024 * 1024
+MAX_FILE = 2 * 1024 * 1024
+MAX_TOTAL = 16 * 1024 * 1024
+VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
+DIGEST = re.compile(r"[0-9a-f]{64}\Z")
+
+
+class UpdateError(Exception):
+    pass
+
+
+def _https(url):
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        port = parsed.port
+    except ValueError as exc:
+        raise UpdateError("Release download URL is malformed.") from exc
+    host = parsed.hostname or ""
+    if (parsed.scheme != "https" or parsed.username or parsed.password
+            or port not in (None, 443)
+            or not (host == "github.com" or host.endswith(".githubusercontent.com"))):
+        raise UpdateError("Release download left the supported HTTPS publisher/CDN route.")
+    return url
+
+
+class _Redirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return super().redirect_request(req, fp, code, msg, headers, _https(newurl))
+
+
+def download(url, limit):
+    request = urllib.request.Request(_https(url), headers={"User-Agent": "Agent-Relay-release-installer"})
+    try:
+        with urllib.request.build_opener(_Redirect()).open(request, timeout=30) as response:
+            _https(response.url)
+            body = response.read(limit + 1)
+    except (OSError, urllib.error.URLError, http.client.HTTPException) as exc:
+        raise UpdateError("Release download unavailable; installed state is not evidence of being up to date.") from exc
+    if len(body) > limit:
+        raise UpdateError("Release download exceeded its size limit.")
+    return body
+
+
+def validate_release(value, requested=None):
+    fields = {"schema", "version", "source_commit", "archive", "archive_sha256", "release_id", "files"}
+    if not isinstance(value, dict) or set(value) != fields or type(value["schema"]) is not int or value["schema"] != 1:
+        raise UpdateError("Unsupported release metadata; use the release page for the supported installer.")
+    version = value["version"]
+    if not isinstance(version, str) or not VERSION.fullmatch(version) or (requested and version != requested):
+        raise UpdateError("Release version does not match the requested selection.")
+    if (not isinstance(value["source_commit"], str)
+            or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", value["source_commit"])
+            or value["archive"] != f"relay-{version}-linux-x86_64.tar.gz"):
+        raise UpdateError("Release source/archive identity is invalid.")
+    for key in ("release_id", "archive_sha256"):
+        if not isinstance(value[key], str) or not DIGEST.fullmatch(value[key]):
+            raise UpdateError("Release digest is invalid.")
+    files = value["files"]
+    root = f"relay-{version}/"
+    if not isinstance(files, dict) or not 5 <= len(files) <= 128:
+        raise UpdateError("Release file selection is invalid.")
+    for name, digest in files.items():
+        if (not isinstance(name, str) or not name.startswith(root)
+                or PurePosixPath(name).as_posix() != name or ".." in PurePosixPath(name).parts
+                or "\\" in name or "\0" in name or name.endswith("/")
+                or not isinstance(digest, str) or not DIGEST.fullmatch(digest)):
+            raise UpdateError("Release file selection contains an unsafe path or digest.")
+    if not {root + n for n in ("LICENSE", "README.md", "SHA256SUMS", "runtime/bootstrap.py", "runtime/release.json")} <= set(files):
+        raise UpdateError("Release file selection is incomplete.")
+    if files[root + "runtime/release.json"] != value["release_id"]:
+        raise UpdateError("Release record hash does not match its runtime identity.")
+    return value
+
+
+def _unique(pairs):
+    result = {}
+    for name, value in pairs:
+        if name in result:
+            raise UpdateError("Release JSON contains duplicate fields.")
+        result[name] = value
+    return result
+
+
+def candidate(version=None):
+    if version is not None and not VERSION.fullmatch(version):
+        raise UpdateError("Use an exact version such as 0.2.0, without a v prefix.")
+    route = f"download/v{version}" if version else "latest/download"
+    try:
+        value = json.loads(download(f"{PROJECT}/releases/{route}/relay-release.json", 256 * 1024), object_pairs_hook=_unique)
+    except (ValueError, UnicodeError, RecursionError) as exc:
+        raise UpdateError("Release metadata is unreadable; update availability is unknown.") from exc
+    return validate_release(value, version)
+
+
+def extract_release(body, release, destination):
+    """Validate the complete file-only archive before writing any member."""
+    if len(body) > MAX_ARCHIVE or hashlib.sha256(body).hexdigest() != release["archive_sha256"]:
+        raise UpdateError("Archive checksum mismatch; no installation was attempted.")
+    captured = {}
+    total = 0
+    try:
+        # Bound the whole decompressed stream before tarfile parses extended
+        # headers; member limits alone do not bound PAX/header expansion.
+        expanded_limit = MAX_TOTAL + 256 * 1024
+        with gzip.GzipFile(fileobj=io.BytesIO(body)) as compressed:
+            expanded = compressed.read(expanded_limit + 1)
+        if len(expanded) > expanded_limit:
+            raise UpdateError("Archive exceeded its expanded size limit.")
+        with tarfile.open(fileobj=io.BytesIO(expanded), mode="r:") as archive:
+            for member in archive:
+                if (member.name in captured or member.name not in release["files"]
+                        or not member.isfile() or member.issparse() or member.linkname
+                        or member.size < 0 or member.size > MAX_FILE):
+                    raise UpdateError("Archive has an unexpected, duplicate or non-regular member.")
+                total += member.size
+                if total > MAX_TOTAL:
+                    raise UpdateError("Archive exceeded its expanded size limit.")
+                with archive.extractfile(member) as stream:
+                    data = stream.read(MAX_FILE + 1)
+                if len(data) != member.size or hashlib.sha256(data).hexdigest() != release["files"][member.name]:
+                    raise UpdateError("Archive member checksum mismatch.")
+                captured[member.name] = data
+    except (tarfile.TarError, OSError, EOFError) as exc:
+        raise UpdateError("Release archive is unreadable.") from exc
+    if set(captured) != set(release["files"]):
+        raise UpdateError("Archive is missing expected files.")
+    for name, body in captured.items():
+        path = destination / name
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with path.open("xb") as stream:
+            stream.write(body)
+        path.chmod(0o600)
+    return destination / f"relay-{release['version']}" / "runtime"
+
+
+def _command(argv, timeout=45):
+    try:
+        result = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise UpdateError("Command timed out; inspect installed state before retrying an uncertain operation.") from exc
+    except (OSError, UnicodeError) as exc:
+        raise UpdateError("Required local command/output is unavailable.") from exc
+    if result.returncode:
+        # Bootstrap diagnostics are bounded, and may contain local paths. Keep
+        # them local; no updater report is automatically uploaded.
+        raise UpdateError(f"Command did not report success (exit {result.returncode}): {result.stderr.strip()[:1500]}")
+    try:
+        value = json.loads(result.stdout)
+    except (ValueError, RecursionError) as exc:
+        raise UpdateError("Command returned no usable state; inspect before retrying.") from exc
+    if not isinstance(value, dict):
+        raise UpdateError("Command returned an unsupported state.")
+    return value
+
+
+def _platform():
+    if (platform.system() != "Linux" or platform.machine() != "x86_64"
+            or sys.version_info[:2] != (3, 12) or os.getuid() == 0 or os.getuid() != os.geteuid()):
+        raise UpdateError("Use an ordinary x86-64 Linux account with /usr/bin/python3 3.12; see docs/SUPPORT.md. Provider/OS setup is separate.")
+    if not (sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode):
+        raise UpdateError("Run with /usr/bin/python3 -I -S -B.")
+    if not Path("/usr/bin/git").is_file():
+        raise UpdateError("Git is missing; install it through your normal OS setup before continuing.")
+
+
+def _parser(install):
+    parser = argparse.ArgumentParser(prog="install.py" if install else "relay update",
+        description="Review one public release, then explicitly install using its exact-state offline bootstrap.")
+    parser.add_argument("--check", action="store_true", help="report selection without installing or enrolling")
+    parser.add_argument("--json", action="store_true", help="structured report; check only unless --yes is also supplied")
+    parser.add_argument("--yes", action="store_true", help="approve the selected release and optional repository setup")
+    parser.add_argument("--enroll-repo", "--repo", dest="repo", type=Path, help="explicitly enroll/check this repository after installation; otherwise no repository changes")
+    parser.add_argument("--version", help="exact published version; default: latest release (installer asset stays pinned)")
+    parser.add_argument("--approve-sha256", help="explicit runtime digest; required for noninteractive update application")
+    parser.add_argument("--expected-activation", help="exact observed active ID; stale IDs refuse")
+    return parser
+
+
+def _run(argv, *, install):
+    args = _parser(install).parse_args(argv)
+    result = {"schema": 1, "state": "unavailable", "stage": "prerequisites",
+              "installation": "unchanged", "repository": "not_requested", "provider_started": False,
+              "hook_delivery": "not_checked", "provider_tools": "not_checked",
+              "recovery_url": PROJECT + "/blob/main/docs/engineering/INSTALLATION.md#recover-a-damaged-or-interrupted-installation"}
+    try:
+        _platform()
+        if args.repo is not None:
+            # Do not resolve aliases that the enrollment boundary must inspect.
+            if not args.repo.is_absolute():
+                args.repo = Path.cwd() / args.repo
+            if not args.repo.is_dir():
+                raise UpdateError("--repo must identify the chosen existing Git checkout.")
+        result["stage"] = "release_selection"
+        if install:
+            if PINNED_RELEASE is None:
+                raise UpdateError("Use the versioned install.py release asset, or build a release from reviewed source.")
+            release = validate_release(PINNED_RELEASE, args.version)
+        else:
+            release = candidate(args.version)
+        if args.approve_sha256 and args.approve_sha256 != release["release_id"]:
+            raise UpdateError("Candidate differs from the explicitly approved runtime digest.")
+        result["candidate"] = {k: release[k] for k in ("version", "source_commit", "release_id", "archive_sha256")}
+        result["source_url"] = f"{PROJECT}/tree/{release['source_commit']}"
+        launcher = Path(pwd.getpwuid(os.getuid()).pw_dir) / ".local/bin/relay"
+        # The installed dispatch has verified this launcher; the standalone
+        # installer must instead let the incoming bootstrap inspect any command.
+        current = None if install else _command([str(launcher), "runtime", "status"])
+        result["current"] = current
+        if current and current.get("installed") is not True:
+            raise UpdateError("No healthy active installation was observed.")
+        if current:
+            result["inspect_command"] = shlex.join([str(launcher), "runtime", "inspect"])
+        if current and current["activation"]["release_id"] == release["release_id"]:
+            result.update(state="up_to_date", installation="reused", stage="complete")
+            if args.repo is not None:
+                result["launcher"] = str(launcher)
+                result["setup_command"] = shlex.join([str(launcher), "setup", "--repo", str(args.repo), "--apply"])
+                result["check_command"] = shlex.join([str(launcher), "setup", "--repo", str(args.repo), "--check"])
+            if args.repo is not None and not args.check and (args.yes or not args.json):
+                if args.yes and not (args.version and args.approve_sha256 and args.expected_activation):
+                    raise UpdateError("Unattended repository enrollment requires the exact approved update selection, or use relay setup --apply.")
+                if args.expected_activation and args.expected_activation != current["activation"]["activation_id"]:
+                    raise UpdateError("Activation changed since your observation; no repository setup was attempted.")
+                result["launcher"] = str(launcher)
+                if not args.yes:
+                    print(f"Relay is already up to date. Explicitly enroll/check {args.repo}; provider settings stay unchanged.")
+                    if not sys.stdin.isatty():
+                        result.update(state="needs_attention", repository="not_checked",
+                            message="Repository setup was requested but not approved. Run the exact setup command.",
+                            setup_command=shlex.join([str(launcher), "setup", "--repo", str(args.repo), "--apply"]))
+                        return _finish(result, args, 1)
+                    if input("Type setup to enroll/check this repository: ").strip() != "setup":
+                        result.update(state="cancelled", repository="not_checked")
+                        return _finish(result, args)
+                return _setup(result, args, launcher)
+            if args.repo is not None:
+                result["repository"] = "not_checked"
+            return _finish(result, args)
+        if current:
+            old = re.match(r"([0-9]+)\.([0-9]+)\.([0-9]+)(?:$|[-+])", current["activation"]["version"])
+            if old and tuple(map(int, old.groups())) > tuple(map(int, release["version"].split("."))):
+                raise UpdateError("Selected version is older than the active version; use explicit rollback, not update.")
+        if args.check or (args.json and not args.yes):
+            result.update(state="release_available", stage="selection_checked", package_verification="not_checked")
+            if current:
+                result["apply_argv"] = [str(launcher), "update", "--version", release["version"],
+                    "--approve-sha256", release["release_id"], "--expected-activation", current["activation"]["activation_id"], "--yes", "--json"]
+                if args.repo is not None:
+                    result["apply_argv"] += ["--enroll-repo", str(args.repo)]
+                result["apply_command"] = shlex.join(result["apply_argv"])
+            return _finish(result, args)
+        if not install and args.yes and not (args.version and args.approve_sha256 and args.expected_activation):
+            raise UpdateError("For unattended updates, first inspect relay update --json and use its exact apply_command.")
+        if not install and not args.yes:
+            # Approve newly fetched publisher code before the incoming bootstrap
+            # is ever executed. The existing verified launcher supplies current
+            # identity; the incoming plan must later match that same snapshot.
+            print(f"Update Relay {current['activation']['version']} → {release['version']}\nSource: {result['source_url']}\nRuntime: {release['release_id'][:12]}…\nLauncher: {launcher}\nCurrent activation: {current['activation']['activation_id']}")
+            print(f"Repository enrollment: {args.repo or 'not requested'}. Provider settings stay unchanged.")
+            print("Approve this publisher's release before running its installer. Checksums bind bytes, not publisher authenticity.")
+            print("Running workers keep loaded code; subsequent commands use this selection. Check release compatibility before updating active work.")
+            if not sys.stdin.isatty():
+                raise UpdateError("Run interactively to approve, or inspect relay update --json for an exact apply command.")
+            if input("Type install to apply this selection: ").strip() != "install":
+                result.update(state="cancelled", stage="not_applied")
+                return _finish(result, args)
+        result["stage"] = "package_verification"
+        print(f"Relay: checking release {release['version']}…", file=sys.stderr, flush=True)
+        with tempfile.TemporaryDirectory(prefix="relay-download-") as temporary:
+            directory = Path(temporary)
+            body = download(f"{PROJECT}/releases/download/v{release['version']}/{release['archive']}", MAX_ARCHIVE)
+            bundle = extract_release(body, release, directory)
+            bootstrap = ["/usr/bin/python3", "-I", "-S", "-B", str(bundle / "bootstrap.py")]
+            selection = ["--release", str(bundle), "--approve-sha256", release["release_id"]]
+            plan = _command([*bootstrap, "plan", *selection])
+            expected = plan["expected_activation"]
+            if args.expected_activation is not None and args.expected_activation != (expected or "none"):
+                raise UpdateError("Activation changed since your observation; inspect again before approving a new plan.")
+            if current and expected != current["activation"]["activation_id"]:
+                raise UpdateError("Activation changed during update preparation; no update was attempted.")
+            result["plan"] = plan
+            result["package_verification"] = "verified"
+            observed = _command([*bootstrap, "status"])
+            result["current"] = observed
+            if observed.get("installed"):
+                if observed["activation"]["activation_id"] != expected:
+                    raise UpdateError("Activation changed after planning; inspect before retrying.")
+                old = re.match(r"([0-9]+)\.([0-9]+)\.([0-9]+)(?:$|[-+])", observed["activation"]["version"])
+                if old and tuple(map(int, old.groups())) > tuple(map(int, release["version"].split("."))):
+                    raise UpdateError("This installer is older than the active version; use relay update or deliberate rollback.")
+            elif expected is not None:
+                raise UpdateError("Active installation became unavailable after planning.")
+            print(f"Relay: selected {release['version']}; exact current activation {expected or 'none'}; repository enrollment {args.repo or 'not requested'}.", file=sys.stderr, flush=True)
+            if expected is not None and observed["activation"]["release_id"] != release["release_id"]:
+                print("Relay: running workers keep loaded code; subsequent commands use the new release. Preserve active coordination and follow release compatibility guidance.", file=sys.stderr, flush=True)
+            if install and not args.yes:
+                print(f"Relay {release['version']}\nSource: {result['source_url']}\nRuntime: {release['release_id'][:12]}…\nLauncher: {plan['launcher']}\nCurrent activation: {expected or 'none'}")
+                print(f"Repository setup: {args.repo or 'not requested'}\nProvider sign-ins/settings and permissions stay unchanged.")
+                print("Running workers keep loaded code; subsequent commands use this selection. Finish active coordination before updating between incompatible releases.")
+                print("Approve this publisher's release. Checksums bind the selected bytes; they are not a publisher signature.")
+                if not sys.stdin.isatty():
+                    raise UpdateError("Run interactively to approve, or use --yes for already-authorized installation.")
+                if input("Type install to apply this selection: ").strip() != "install":
+                    result.update(state="cancelled", stage="not_applied")
+                    return _finish(result, args)
+            result["stage"] = "installation"
+            # The incoming bootstrap verifies prior state. Do not execute an
+            # unknown existing command merely to identify it.
+            observed = _command([*bootstrap, "status"])
+            result["previous"] = observed
+            if observed.get("installed") and observed["activation"]["release_id"] == release["release_id"]:
+                if observed["activation"]["activation_id"] != expected:
+                    raise UpdateError("Activation changed after planning; inspect before retrying.")
+                result["installation"] = "reused"
+            else:
+                result["current"] = None
+                result["installation"] = "unknown"
+                applied = _command([*bootstrap, "install", *selection, "--expected-activation", expected or "none"])
+                if applied.get("installed") is not True or applied["activation"]["release_id"] != release["release_id"]:
+                    raise UpdateError("Installation result did not establish the selected runtime; inspect installed status.")
+                result["installation"] = "installed" if expected is None else "updated"
+                result["applied"] = applied
+            launcher = Path(plan["launcher"])
+            result["launcher"] = str(launcher)
+            result["inspect_command"] = shlex.join([str(launcher), "runtime", "inspect"])
+            result["current"] = None
+            result["current"] = _command([str(launcher), "runtime", "status"])
+            if result["current"].get("installed") is not True or result["current"]["activation"]["release_id"] != release["release_id"]:
+                raise UpdateError("Post-installation runtime identity is unavailable or changed; inspect before retrying.")
+            result["launcher"] = str(launcher)
+            if args.repo is not None:
+                return _setup(result, args, launcher)
+            result.update(state="ready_for_setup", stage="complete")
+            return _finish(result, args)
+    except EOFError:
+        result.update(state="cancelled", stage="not_applied", message="Approval input closed; no installation or enrollment was applied.")
+        return _finish(result, args)
+    except (UpdateError, OSError, KeyError, TypeError, subprocess.TimeoutExpired) as exc:
+        result.update(state="unavailable", message=str(exc)[:2000])
+        return _finish(result, args, 1)
+
+
+def _setup(result, args, launcher):
+    result["stage"] = "repository_setup"
+    command = [str(launcher), "setup", "--apply", "--repo", str(args.repo), "--json"]
+    check = [str(launcher), "setup", "--check", "--repo", str(args.repo), "--json"]
+    result["setup_command"] = shlex.join(command)
+    result["check_command"] = shlex.join(check)
+    try:
+        completed = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=90)
+        setup = json.loads(completed.stdout)
+        if not isinstance(setup, dict):
+            raise ValueError("not an object")
+    except (ValueError, UnicodeError, RecursionError, OSError, subprocess.TimeoutExpired):
+        result.update(state="needs_attention", repository={"state": "uncertain"},
+            message="Runtime is installed; repository setup outcome is unknown. Run the check_command before retrying enrollment.")
+        return _finish(result, args, 1)
+    result["repository"] = setup
+    if completed.returncode != 0 or setup.get("state") != "ready":
+        result.update(state="needs_attention", message="Runtime is installed; repository setup needs attention. Preserve state and inspect the setup result.")
+        return _finish(result, args, 1)
+    result.update(state="setup_checked", stage="complete")
+    return _finish(result, args)
+
+
+def _finish(result, args, code=0):
+    if args.json:
+        print(json.dumps(result, sort_keys=True))
+    else:
+        print(f"Relay: {result['state'].replace('_', ' ')}")
+        if result.get("message"):
+            print(result["message"])
+            if result.get("inspect_command"):
+                print("Inspect: " + result["inspect_command"])
+            else:
+                print("Recovery: " + result["recovery_url"])
+        if result.get("candidate"):
+            print(f"Selected release: {result['candidate']['version']}")
+        if result.get("current") and result["current"].get("installed"):
+            print(f"Active release: {result['current']['activation']['version']}")
+        if result.get("launcher"):
+            launcher = result["launcher"]
+            if result["state"] != "setup_checked":
+                print("Next: " + (result.get("check_command") or shlex.join([launcher, "setup", "--apply", "--repo", str(args.repo or Path.cwd())])))
+            print("Use the exact launcher path above if relay is not on PATH; shell configuration was not edited.")
+        if isinstance(result.get("repository"), dict):
+            for action in result["repository"].get("next_actions", []):
+                if isinstance(action, dict):
+                    print(action.get("action", ""))
+                    if action.get("command"):
+                        print("Next: " + shlex.join(action["command"]))
+                else:
+                    print("Next: " + str(action))
+        print("Provider authentication, hook delivery and tools are not checked by installation.")
+    return code
+
+
+def update_main(argv=None):
+    return _run(argv, install=False)
+
+
+def install_main(argv=None):
+    return _run(argv, install=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(install_main())

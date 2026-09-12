@@ -1,0 +1,78 @@
+"""Source-absent setup observes real shared work without executing providers."""
+
+import json
+import subprocess
+import unittest
+
+import test_public_profile as profile
+
+
+_SETUP = profile._COMMON + r'''
+assert not pathlib.Path('/source').exists() and not pathlib.Path('/bundle').exists()
+base = [str(launcher), '--repo', str(project), '--json']
+before_project = snapshot(project)
+before_foreign = snapshot(foreign)
+unchecked = subprocess.run(base + ['setup'], text=True, capture_output=True)
+assert unchecked.returncode == 1, unchecked.stdout + unchecked.stderr
+report = json.loads(unchecked.stdout)
+assert report['runtime']['state'] == 'verified' and report['state'] == 'not_ready'
+assert snapshot(project) == before_project and snapshot(foreign) == before_foreign
+assert not (home / '.local/share/relay/enrollments').exists()
+
+provider = pathlib.Path('/tmp/never-run-provider')
+provider.write_text('#!/bin/sh\ntouch /tmp/provider-was-started\nexit 1\n')
+provider.chmod(0o700)
+flags = ['--codex', str(provider), '--claude', str(provider)]
+report = call(base + ['setup', '--apply', *flags])
+assert report['state'] == 'ready', report
+assert report['repository']['doctor']['state'] == report['repository']['status']['state'] == 'verified'
+assert all(row['state'] == 'prepared' for row in report['providers'].values())
+assert not pathlib.Path('/tmp/provider-was-started').exists()
+git = ['/usr/bin/git', '-C', str(project), '-c', 'core.hooksPath=/dev/null',
+       '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+       '-c', 'commit.gpgsign=false']
+subprocess.run(git + ['commit', '--allow-empty', '-qm', 'Synthetic setup witness'], check=True)
+linked = pathlib.Path('/tmp/linked')
+subprocess.run(git + ['worktree', 'add', '-qb', 'setup-witness', str(linked)], check=True)
+claim = call(base + ['claim', 'code:setup', '--agent', 'codex', '--session', 'setup-owner', '--purpose', 'Preserve ownership'])['claim']
+handoff = call(base + ['signal', 'work.handoff', '--agent', 'codex', '--session', 'setup-owner',
+    '--target', 'claude', '--work-id', 'setup-witness', '--commit', 'HEAD', '--summary', 'Preserve pending review'])['event']
+before_events = call(base + ['events'])
+before_status = call(base + ['status'])
+before_registry = snapshot(home / '.local/share/relay/enrollments')
+before_hooks = snapshot(project / '.git/hooks')
+activation = call([str(launcher), 'runtime', 'status'])['activation']
+for checkout in (project, linked, project):
+    checked = call([str(launcher), 'setup', '--repo', str(checkout), '--apply', '--json', *flags])
+    assert checked['state'] == 'ready', checked
+    assert checked['repository']['identity']['git_common_dir'] == str(project / '.git')
+assert call(base + ['events']) == before_events
+assert call(base + ['status']) == before_status
+assert snapshot(home / '.local/share/relay/enrollments') == before_registry
+assert snapshot(project / '.git/hooks') == before_hooks
+assert snapshot(foreign) == before_foreign
+assert call([str(launcher), 'runtime', 'status'])['activation'] == activation
+assert not pathlib.Path('/tmp/provider-was-started').exists()
+print(json.dumps({'source_absent': True, 'shared_work_preserved': True,
+                  'providers_started': 0, 'linked_worktree_verified': True}))
+'''
+
+
+class PublicSetupTests(unittest.TestCase):
+    def test_source_absent_setup_preserves_shared_work_and_never_launches_providers(self):
+        fixture = profile.PublicProfileTests(methodName='test_public_installed_ledger_in_fresh_rootless_account')
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        built = subprocess.run(['/usr/bin/python3', '-I', '-S', '-B', str(profile.SOURCE / 'relay_bootstrap.py'),
+            'build-release', '--output', str(fixture.bundle), '--version', '0.2.0-setup-witness'],
+            env=fixture.env, text=True, capture_output=True, timeout=20)
+        self.assertEqual(0, built.returncode, built.stdout + built.stderr)
+        release_id = json.loads(built.stdout)['release_id']
+        fixture.sandbox(profile._INSTALL, release_id, include_source=True)
+        result = fixture.sandbox(_SETUP, release_id, include_source=False)
+        self.assertEqual({'source_absent': True, 'shared_work_preserved': True,
+                          'providers_started': 0, 'linked_worktree_verified': True}, result)
+
+
+if __name__ == '__main__':
+    unittest.main()

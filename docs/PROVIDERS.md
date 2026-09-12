@@ -1,6 +1,6 @@
-# Provider hooks — 0.1.0 preview
+# Provider hooks
 
-The newer source preview also packages [native peer calls](PEER.md), which
+Relay v0.2.0 also packages [native peer calls](PEER.md), which
 return Claude's output to the initiating task, and `relay launch` for interactive
 launches. The v0.1.0 walkthrough and historical evidence below retain their
 manual-notification scope.
@@ -20,16 +20,15 @@ observations and repeated context. Invocation-only arguments provide opt-in
 without persistent provider-setting edits; native review remains separate.
 
 For a first installation, use the [setup guide](SETUP.md). Once the repository
-is enrolled, the [interactive launch helper](../examples/launch_provider.py)
+is enrolled, the installed interactive launch command
 provides the invocation example below without manual path/argument editing:
 
 ```sh
-/usr/bin/python3 -I -S -B examples/launch_provider.py codex --repo /absolute/enrolled/checkout
+~/.local/bin/relay launch codex --repo /absolute/enrolled/checkout
 ```
 
-Run it from the reviewed source checkout; use `claude` for the other provider.
-Add `--json` to prepare a launch plan without starting a provider. The helper
-comes with current source, not the v0.1.0 runtime archive. Its plan does not
+Use `claude` for the other provider. Add `--json` to prepare a launch plan without
+starting a provider. No source checkout is needed. Its plan does not
 establish native trust, model-visible context or working provider tools.
 
 ## Command and scope
