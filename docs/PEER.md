@@ -80,6 +80,7 @@ required human decision; it must not silently widen permissions to finish.
 | `uncertain` | The call started but timed out, was interrupted, or lacked a valid matching result. External work may already have happened. |
 | `needs_attention`, `permission_denials`, `terminal_reason` | Check these even when the process exits zero. Tool denials and stopped/deferred work can accompany useful output. |
 | `session_id` | The verified returned Claude session identity. `requested_session_id` is recorded before launching for recovery. |
+| `observed_session_id` | If present on an identity mismatch, the unverified UUID reported by the provider. It is diagnostic, not a resume instruction; the answer and denials remain in raw output. |
 | `relay_acknowledgement`, `workflow_completion` | Always `not_checked` by the helper. Inspect actual ledger state and artifacts separately. |
 
 Each call retains a private directory containing its request, task, native
@@ -89,11 +90,19 @@ The default is a retained temporary directory, subject to the OS's cleanup
 policy. Its location and the requested session ID are printed before launch.
 Keep these files private: native output and task text can contain sensitive
 project information. Nothing is uploaded or published by Relay's recorder.
+`stdout_observation` records the byte count and SHA-256 of the bounded output
+read for interpretation; `truncated` marks a read exceeding the summary limit.
+The raw files are not sealed: a provider descendant may still hold their file
+descriptors. Compare the observed bytes before reusing a summary if they changed.
 
 After timeout or an uncertain result, inspect the local evidence and durable
 work before deciding whether to continue. Relay stops only the process group
 created for that call. Killing a process does not prove that prior external
 operations were undone. Never release someone else's claim to tidy the result.
+SIGINT, SIGTERM and SIGHUP also trigger owned-process cleanup and an uncertain
+receipt. SIGKILL, host failure and a provider that escapes that process group
+cannot be handled this way. Normal completion does not kill background work
+merely because it inherited an output descriptor.
 
 For an intentional follow-up, use the returned UUID and the same checkout:
 
@@ -124,8 +133,15 @@ Automated checks cover fake native processes, refusal and partial-result cases,
 exact sessions, interrupted calls, private evidence, and installed commands with
 the source checkout absent and real public hooks. They are not real-model
 workflow evidence. The [historical native workflow](PROVIDERS.md#bounded-native-workflow)
-keeps its original scope; it does not establish this source preview's complete
-automatic round-trip. A native verification of this candidate is still pending.
+keeps its original scope. A separate development check with Claude Code 2.1.267
+used the public source entry and an existing installed development runtime:
+Claude wrote a code review, acknowledged the exact handoff and released its
+claim; its answer returned to the initiating Codex task without manual message
+forwarding. The caller inspected the artifact and ledger and acted on the review.
+The call took 520 seconds and 13 provider turns, with no reported permission
+denials. This establishes that scoped source-entry call/return, not native
+verification of a newly installed public bundle, independent onboarding or
+broad reliability. Native exact-session resume remains unverified by this check.
 
 For source development, `examples/call_peer.py` invokes the same helper against
 a reviewed installed Relay selected with `--relay`. This is a source entry point,

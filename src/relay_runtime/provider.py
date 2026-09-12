@@ -7,6 +7,7 @@ workflow completion. Provider configuration comes from the installed worker.
 """
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -175,7 +176,7 @@ def _session(value):
     try:
         if str(uuid.UUID(value)) != value:
             raise ValueError()
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError, TypeError):
         raise argparse.ArgumentTypeError("use the exact lowercase session UUID returned by the previous call") from None
     return value
 
@@ -238,13 +239,40 @@ def _stop(process):
     process.wait()
 
 
+@contextmanager
+def _call_signals():
+    """Route ordinary caller termination through owned-process cleanup."""
+    state = {"signal": None, "starting": False, "stopping": False}
+
+    def interrupt(number, frame):
+        if not state["stopping"]:
+            state["signal"] = number
+            if not state["starting"]:
+                raise KeyboardInterrupt
+
+    previous = {}
+    try:
+        for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            previous[number] = signal.signal(number, interrupt)
+        yield state
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+
+
 def _interpret(directory, envelope):
     path = directory / "stdout.json"
-    if path.stat().st_size > _MAX_RESULT:
+    # Bound the read itself, not just a prior stat: a native descendant may
+    # still hold the output descriptor. Bind the summary to the bytes observed.
+    with path.open("rb") as stream:
+        body = stream.read(_MAX_RESULT + 1)
+    envelope["stdout_observation"] = {"bytes": len(body), "sha256": hashlib.sha256(body).hexdigest(),
+                                      "truncated": len(body) > _MAX_RESULT}
+    if len(body) > _MAX_RESULT:
         envelope["message"] = "Provider output exceeded the summary bound; inspect retained output before continuing."
         return
     try:
-        native = json.loads(path.read_bytes())
+        native = json.loads(body)
         # JSON can represent lone surrogates that cannot be delivered as UTF-8.
         # Preserve the raw result, but do not turn it into a success then fail
         # while recording or returning the interpreted evidence.
@@ -258,7 +286,11 @@ def _interpret(directory, envelope):
         envelope["message"] = "Unsupported final provider result; inspect retained output before continuing."
         return
     if native.get("session_id") != envelope["requested_session_id"]:
-        envelope["message"] = "Returned session identity does not match the requested peer; do not automatically resume it."
+        try:
+            envelope["observed_session_id"] = _session(native.get("session_id"))
+        except argparse.ArgumentTypeError:
+            pass
+        envelope["message"] = "Returned session identity does not match the requested peer. The unverified answer and denials remain in stdout.json; inspect them without automatically resuming either identity."
         return
     text = native.get("result")
     denials = native.get("permission_denials", [])
@@ -302,8 +334,13 @@ def peer_main(argv=None):
     parser.add_argument("--timeout", type=_positive, default=600, help="call wall-time limit in seconds (default: 600)")
     parser.add_argument("--max-turns", type=_positive, help="optional native turn limit; omitted by default")
     parser.add_argument("--dry-run", action="store_true", help="validate task/configuration and print a plan; no provider or evidence writes")
-    parser.add_argument("--json", action="store_true", help="return a structured result; this DOES launch unless --dry-run is used")
+    parser.add_argument("--json", action="store_true", help="return a structured result; this DOES launch unless --dry-run is used; exit 0 means a returned turn, so also check needs_attention and task evidence")
     args = parser.parse_args(argv)
+    with _call_signals() as interruption:
+        return _run_peer(args, interruption)
+
+
+def _run_peer(args, interruption):
     session = args.resume or str(uuid.uuid4())
     envelope = {"schema": 1, "provider": "claude", "state": "unavailable",
                 "requested_session_id": session, "session_id": None,
@@ -354,16 +391,28 @@ def peer_main(argv=None):
               _private_file(directory, "stderr.txt") as errors):
             try:
                 stage = "provider_spawn"
-                process = subprocess.Popen(native, cwd=plan["repo"], stdin=subprocess.PIPE,
-                                           stdout=output, stderr=errors, start_new_session=True)
+                # Keep a cancellation pending until we own the returned handle.
+                # This is parent-only deferral, not a signal mask inherited by
+                # the provider and not a change to its execution permissions.
+                interruption["starting"] = True
+                try:
+                    process = subprocess.Popen(native, cwd=plan["repo"], stdin=subprocess.PIPE,
+                                               stdout=output, stderr=errors, start_new_session=True)
+                finally:
+                    interruption["starting"] = False
+                if interruption["signal"] is not None:
+                    raise KeyboardInterrupt
                 envelope.update(state="uncertain", provider_started=True)
                 stage = "provider_call"
                 process.communicate(input=task, timeout=args.timeout)
             except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
+                interruption["stopping"] = True
                 if process is not None:
                     _stop(process)
+                if process is not None:
+                    envelope.update(state="uncertain", provider_started=True)
                 envelope["message"] = "Call interrupted or timed out; work may have occurred. Inspect evidence and Relay state before any follow-up."
-                code = 130 if isinstance(exc, KeyboardInterrupt) else 1
+                code = (128 + (interruption["signal"] or signal.SIGINT)) if isinstance(exc, KeyboardInterrupt) else 1
             finally:
                 envelope["elapsed_seconds"] = round(time.monotonic() - started, 3)
                 if process is not None:
@@ -377,10 +426,21 @@ def peer_main(argv=None):
         envelope["message"] = (str(exc) if isinstance(exc, LaunchError) else
                                f"Unavailable during {stage}; inspect the selected path or retained evidence.")
     except (KeyboardInterrupt, EOFError):
+        interruption["stopping"] = True
         if process is not None:
             _stop(process)
+            envelope.update(state="uncertain", provider_started=True, needs_attention=True)
         envelope["message"] = "Interrupted; inspect any retained evidence before retrying."
-        code = 130
+        code = 128 + (interruption["signal"] or signal.SIGINT)
+    finally:
+        # Cleanup and the receipt should survive repeated ordinary termination
+        # signals. Restore the caller's handlers when peer_main returns.
+        interruption["stopping"] = True
+        if process is not None:
+            if process.poll() is None:
+                _stop(process)
+                envelope.update(state="uncertain", needs_attention=True)
+            envelope.update(provider_started=True, process_exit_code=process.returncode)
     if directory is not None:
         try:
             _record(directory, "result.json", envelope)

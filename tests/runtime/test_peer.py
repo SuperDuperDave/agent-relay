@@ -1,13 +1,17 @@
 """Native peer boundaries using disposable executables; no real provider access."""
 
 from contextlib import redirect_stderr, redirect_stdout
+import hashlib
 import io
 import json
 import os
 from pathlib import Path
 import shlex
+import signal
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -47,7 +51,7 @@ class PeerTests(unittest.TestCase):
                         f"with open({str(self.calls)!r}, 'a') as stream: stream.write('call\\n')\n"
                         "task = sys.stdin.buffer.read()\n"
                         f"Path({str(self.base / 'received-task.txt')!r}).write_bytes(task)\n"
-                        f"receipt = {{'argv': sys.argv, 'cwd': os.getcwd(), 'env': {{key: os.environ.get(key) for key in {list(self.environment)!r}}}}}\n"
+                        f"receipt = {{'argv': sys.argv, 'cwd': os.getcwd(), 'pid': os.getpid(), 'pgid': os.getpgrp(), 'env': {{key: os.environ.get(key) for key in {list(self.environment)!r}}}}}\n"
                         f"Path({str(self.receipt)!r}).write_text(json.dumps(receipt))\n"
                         f"spec = json.loads(Path({str(self.response)!r}).read_text())\n"
                         "session_flag = '--resume' if '--resume' in sys.argv else '--session-id'\n"
@@ -102,6 +106,9 @@ class PeerTests(unittest.TestCase):
         self.assertEqual("not_checked", result["workflow_completion"])
         evidence = Path(result["evidence_directory"])
         self.assertEqual(task, (evidence / "task.txt").read_bytes())
+        raw_output = (evidence / "stdout.json").read_bytes()
+        self.assertEqual({"bytes": len(raw_output), "sha256": hashlib.sha256(raw_output).hexdigest(),
+                          "truncated": False}, result["stdout_observation"])
         for path in evidence.iterdir():
             self.assertEqual(0o600, path.stat().st_mode & 0o777)
         self.assertEqual(0o700, evidence.stat().st_mode & 0o777)
@@ -162,6 +169,130 @@ class PeerTests(unittest.TestCase):
         self.assertIn("artificial provider diagnostic", (evidence / "stderr.txt").read_text())
         self.assertEqual(result["requested_session_id"], json.loads((evidence / "request.json").read_text())["requested_session_id"])
 
+    def test_termination_signals_stop_native_group_and_retain_uncertain_result(self):
+        self.configure(sleep=True)
+        for signum in (signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=signum.name):
+                self.receipt.unlink(missing_ok=True)
+                self.calls.unlink(missing_ok=True)
+                evidence = self.base / f"signal-{signum.name}"
+                wrapper = subprocess.Popen(
+                    [sys.executable, "-I", "-S", "-B", str(ROOT / "examples" / "call_peer.py"),
+                     "claude", "--repo", str(self.repo), "--relay", str(self.relay),
+                     "--provider", str(self.provider), "--task-file", str(self.task),
+                     "--output-dir", str(evidence), "--timeout", "15", "--json"],
+                    cwd=ROOT, env=self.environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, start_new_session=True)
+                receipt = None
+                try:
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        try:
+                            receipt = json.loads(self.receipt.read_text())
+                            break
+                        except (FileNotFoundError, json.JSONDecodeError):
+                            if wrapper.poll() is not None:
+                                break
+                            time.sleep(0.01)
+                    self.assertIsNotNone(receipt, "fake provider did not report startup")
+                    self.assertEqual(receipt["pid"], receipt["pgid"])
+                    self.assertNotEqual(wrapper.pid, receipt["pgid"])
+                    wrapper.send_signal(signum)
+                    stdout, stderr = wrapper.communicate(timeout=10)
+                    self.assertEqual(128 + signum, wrapper.returncode, stderr)
+                    result = json.loads(stdout)
+                    self.assertEqual("uncertain", result["state"])
+                    self.assertTrue(result["provider_started"])
+                    self.assertIsNotNone(result["process_exit_code"])
+                    self.assertTrue(result["needs_attention"])
+                    self.assertIsNone(result["session_id"])
+                    self.assertEqual(result, json.loads((evidence / "result.json").read_text()))
+                    self.assertEqual("call\n", self.calls.read_text())
+                    self.assertEqual(self.task.read_bytes(), (evidence / "task.txt").read_bytes())
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(receipt["pid"], 0)
+                    with self.assertRaises(ProcessLookupError):
+                        os.killpg(receipt["pgid"], 0)
+                finally:
+                    if wrapper.poll() is None:
+                        wrapper.kill()
+                    wrapper.communicate(timeout=5)
+                    # Cleanup remains bounded even when an assertion exposes an orphan.
+                    if receipt is None:
+                        try:
+                            receipt = json.loads(self.receipt.read_text())
+                        except (FileNotFoundError, json.JSONDecodeError):
+                            pass
+                    if receipt is not None:
+                        try:
+                            os.killpg(receipt["pgid"], signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+
+    def test_interrupted_cleanup_records_final_provider_exit(self):
+        handlers = {number: signal.getsignal(number)
+                    for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+        process = mock.Mock(returncode=None)
+        process.communicate.side_effect = KeyboardInterrupt()
+        stops = 0
+
+        def interrupted_stop(child):
+            nonlocal stops
+            self.assertIs(process, child)
+            stops += 1
+            if stops == 1:
+                raise KeyboardInterrupt()
+            child.returncode = -signal.SIGTERM
+
+        plan = {"argv": [str(self.provider), *self.native_arguments], "repo": str(self.repo)}
+        with (mock.patch.object(peer, "prepare", return_value=plan),
+              mock.patch.object(peer.subprocess, "Popen", return_value=process),
+              mock.patch.object(peer, "_stop", side_effect=interrupted_stop)):
+            code, result, _ = self.invoke()
+        self.assertEqual(130, code)
+        self.assertEqual("uncertain", result["state"])
+        self.assertTrue(result["provider_started"])
+        self.assertEqual(-signal.SIGTERM, result["process_exit_code"])
+        self.assertEqual(result, json.loads((Path(result["evidence_directory"]) / "result.json").read_text()))
+        self.assertEqual(handlers, {number: signal.getsignal(number) for number in handlers})
+
+    def test_termination_during_spawn_preserves_handle_for_cleanup(self):
+        handlers = {number: signal.getsignal(number)
+                    for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+        original = subprocess.Popen
+        children = []
+
+        def interrupted_spawn(*args, **kwargs):
+            child = original(*args, **kwargs)
+            if kwargs.get("start_new_session"):
+                children.append(child)
+                os.kill(os.getpid(), signal.SIGTERM)
+            return child
+
+        try:
+            with mock.patch.object(peer.subprocess, "Popen", side_effect=interrupted_spawn):
+                code, result, _ = self.invoke()
+            self.assertEqual(143, code)
+            self.assertEqual(1, len(children))
+            self.assertIsNotNone(children[0].poll())
+            self.assertEqual("uncertain", result["state"])
+            self.assertTrue(result["provider_started"])
+            self.assertEqual(children[0].returncode, result["process_exit_code"])
+            self.assertEqual(result, json.loads((Path(result["evidence_directory"]) / "result.json").read_text()))
+            self.assertEqual(handlers, {number: signal.getsignal(number) for number in handlers})
+            with self.assertRaises(ProcessLookupError):
+                os.killpg(children[0].pid, 0)
+        finally:
+            for child in children:
+                if child.poll() is None:
+                    try:
+                        os.killpg(child.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                child.wait(timeout=5)
+                if child.stdin is not None:
+                    child.stdin.close()
+
     def test_unreadable_missing_and_mismatched_results_remain_uncertain(self):
         cases = ({"raw": ""}, {"raw": "not JSON"}, {"raw": "[]"},
                  {"remove": ["result"]}, {"remove": ["session_id"]},
@@ -175,6 +306,10 @@ class PeerTests(unittest.TestCase):
                 self.assertEqual(1, code)
                 self.assertEqual("uncertain", result["state"])
                 self.assertTrue(result["needs_attention"])
+                if spec.get("native", {}).get("session_id"):
+                    self.assertEqual(spec["native"]["session_id"], result["observed_session_id"])
+                    self.assertIsNone(result["session_id"])
+                    self.assertIsNone(result["result"])
         self.assertEqual(len(cases), len(self.calls.read_text().splitlines()))
 
     def test_denials_retain_useful_answer_without_claiming_completion(self):
