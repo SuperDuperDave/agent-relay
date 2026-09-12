@@ -49,6 +49,11 @@ def _parser():
             provider.add_argument("--client", required=True, choices=("codex", "claude"))
             config = action.add_parser("provider-config", help="print reviewed invocation arguments without installing settings or launching a provider")
             config.add_argument("--client", required=True, choices=("codex", "claude"))
+            for name, description in (("launch", "review hooks and start an interactive native provider"),
+                                      ("peer", "call Claude and return its result to this task")):
+                native = action.add_parser(name, help=description, add_help=False)
+                native.add_argument("--help", action="store_true", dest="native_help")
+                native.add_argument("provider_args", nargs=argparse.REMAINDER)
     return parser
 
 
@@ -307,6 +312,19 @@ def main(argv=None, *, registry=None):
     try:
         if args.state_home is not None or "RELAY_HOME" in os.environ:
             raise StateError("installed Relay refuses state-directory overrides")
+        if args.command in {"launch", "peer"}:
+            # Native providers retain their normal environment and sandbox stack.
+            # Each helper obtains its config via a separate admitted ledger worker;
+            # never launch a provider in the worker's closed environment/Landlock.
+            from .provider import launch_main, peer_main
+            forwarded = list(args.provider_args)
+            if args.native_help:
+                forwarded += ["--help"]
+            if args.repo is not None:
+                forwarded += ["--repo", args.repo]
+            if args.json:
+                forwarded += ["--json"]
+            return (launch_main if args.command == "launch" else peer_main)(forwarded)
         if args.command == "provider-hook":
             args.provider_payload = _provider_input(args.client)
             if args.provider_payload is None:

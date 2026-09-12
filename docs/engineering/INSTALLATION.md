@@ -87,7 +87,7 @@ From a reviewed source checkout:
 ```
 
 The destination must not already exist. The builder includes only bootstrap.py,
-release.json and the nine approved runtime modules under payload/. It excludes
+release.json and the exact approved runtime module set under payload/. It excludes
 Git history, audit files, ledgers, credentials, tests and working notes.
 
 The result deliberately says approved:false. Review the artifact and source
@@ -170,6 +170,17 @@ to generate and review invocation arguments. Initialization does not configure
 providers, grant their permissions or approve native hook trust.
 
 ## Upgrades and explicit rollback
+
+When upgrading v0.1.0 to a source-built bundle containing native peer support,
+use the **incoming reviewed bundle's `bootstrap.py`** for `plan` and `install`.
+Its reader recognizes exactly the original and expanded closed module sets;
+the older bootstrap cannot read the expanded bundle. The source preview adds
+the verified provider adapter without relaxing unknown-member refusal.
+
+Rollback can reactivate the retained old release and its matching bootstrap.
+Afterward, use the newer reviewed bootstrap if installation inspection or
+uninstall must account for retained newer releases; the old manager does not
+understand their expanded payload. Retain both bundles and recovery metadata.
 
 Bootstrap and runtime are stored as one approved release pair. A unique launch
 ID names a prepared record and deterministic wrapper for that pair. The one

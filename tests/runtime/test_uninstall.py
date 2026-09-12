@@ -86,7 +86,7 @@ class UninstallTests(unittest.TestCase):
         self.assertEqual(first, self.distribution.uninstall_plan())
         self.assertEqual("ready", first["state"])
         self.assertEqual([], first["writes"])
-        self.assertEqual(21, len(first["targets"]))
+        self.assertEqual(len(subject.PAYLOAD_FILES) + 12, len(first["targets"]))
         self.assertEqual(before, snapshot(self.base))
 
     def test_removes_actual_code_and_selectors_preserves_data_then_reinstalls(self):

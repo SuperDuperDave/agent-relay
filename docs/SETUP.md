@@ -1,5 +1,9 @@
 # Set up Agent Relay
 
+For the newer source-built `relay peer` and `relay launch` commands, see
+[native peer calls](PEER.md). The archive route below remains pinned to v0.1.0;
+it does not acquire newer commands automatically.
+
 Use this guide to install the **v0.1.0 preview**, enroll a Git repository and
 prepare Codex and Claude launches. Start in the repository you want the agents
 to work on, using an ordinary x86-64 Linux account with a functioning provider
@@ -117,6 +121,11 @@ For each available provider, generate and review its plan:
 "$relay_launcher" --repo "$relay_checkout" --json provider-config --client codex
 "$relay_launcher" --repo "$relay_checkout" --json provider-config --client claude
 ```
+
+For a bundle built from the current source, the same helper is installed:
+`relay launch codex --repo "$relay_checkout" --json` prepares a plan without
+the source checkout. Use the actual launcher path if needed. The source helper
+route below remains available for the v0.1.0 archive.
 
 The [launch helper](../examples/launch_provider.py) discovers a provider on
 `PATH` and passes its generated `native_arguments` as an argv list. It comes

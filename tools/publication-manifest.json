@@ -8,6 +8,7 @@
     "docs/ARCHITECTURE.md",
     "docs/CI.md",
     "docs/DEMO.md",
+    "docs/PEER.md",
     "docs/PROVIDERS.md",
     "docs/SETUP.md",
     "docs/SUPPORT.md",
@@ -28,6 +29,7 @@
     "docs/engineering/public-provider-hook-result.json",
     "docs/engineering/public-runtime-result.json",
     "docs/engineering/public-uninstall-result.json",
+    "examples/call_peer.py",
     "examples/demo_scenario.py",
     "examples/launch_provider.py",
     "examples/no_account_demo.py",
@@ -42,6 +44,7 @@
     "src/relay_runtime/cli.py",
     "src/relay_runtime/confinement.py",
     "src/relay_runtime/enrollment.py",
+    "src/relay_runtime/provider.py",
     "tests/core/test_relay.py",
     "tests/core/test_relay_channel_pending.py",
     "tests/core/test_relay_decisions.py",
@@ -57,9 +60,11 @@
     "tests/runtime/test_installed_adversarial.py",
     "tests/runtime/test_launch_provider.py",
     "tests/runtime/test_null_sink.py",
+    "tests/runtime/test_peer.py",
     "tests/runtime/test_provider_config.py",
     "tests/runtime/test_provider_hook.py",
     "tests/runtime/test_public_external_recovery.py",
+    "tests/runtime/test_public_peer.py",
     "tests/runtime/test_public_profile.py",
     "tests/runtime/test_public_provider.py",
     "tests/runtime/test_public_rebind.py",
@@ -222,6 +227,12 @@
       "rule": "personal-home-path",
       "line_sha256": "37b8abf4fdd0aaa78fee5bc1a00aa499624e0e1af81922ff49963bccf0bbe388",
       "reason": "sanitizer-pattern"
+    },
+    {
+      "path": "tests/runtime/test_public_peer.py",
+      "rule": "email-address",
+      "line_sha256": "5f2dacbb7f784f0cb2a5cc51aae1e6fbbc97e5be7f49cb36ccaac41011a08bf0",
+      "reason": "synthetic-test-fixture"
     }
   ]
 }

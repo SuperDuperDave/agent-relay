@@ -45,6 +45,12 @@ After setup, the [interactive launch helper](examples/launch_provider.py) finds
 the selected provider and supplies the reviewed hooks without editing its
 settings. `--json` prepares a machine-readable plan without starting a provider.
 
+The newer source preview packages this as `relay launch` and adds
+[`relay peer claude`](docs/PEER.md): send a scoped task and return the answer to
+the calling agent. These commands are not in the v0.1.0 archive. Automated
+integration checks and native workflow observations have separate scope;
+the peer guide records the remaining verification.
+
 ## Try the no-account demo
 
 First check the [platform prerequisites](docs/SUPPORT.md#exercised-profile),

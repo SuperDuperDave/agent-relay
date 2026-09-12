@@ -25,7 +25,7 @@ ambiguous state refuses rather than silently initializing a fresh ledger.
 The worker retains directory/file identity checks across the actual operation.
 
 **Distribution selection** lives in `src/relay_bootstrap.py`. An offline
-release is a closed pair: reviewed bootstrap plus nine runtime modules.
+release is a closed pair: reviewed bootstrap plus an exact runtime module set.
 A release digest identifies exact bytes, not a trusted publisher. Installation
 uses account defaults from the OS account database rather than ambient HOME.
 The command selector activates one coherent pair with a fresh activation ID;
@@ -87,6 +87,11 @@ primary-source rationale, test evidence and limits.
 
 ## Intentional limits
 
+- The source preview's native launch/peer adapter runs outside the confined
+  ledger worker. It obtains hook configuration through an admitted read-only
+  worker, then invokes the provider with its normal environment and permissions.
+  Process return is separate from ledger acknowledgement and workflow completion;
+  see [peer calls](PEER.md). It does not provision the provider or OS.
 - One trusted local OS account is the initial model. Agent labels are not
   credentials, and local coordination is not a multi-user authorization system.
 - The exercised worker profile is x86-64 Linux/WSL with Python3.12, LandlockABI3+,

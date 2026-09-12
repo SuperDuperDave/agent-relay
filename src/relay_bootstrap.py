@@ -34,8 +34,17 @@ PAYLOAD_MODULES = {
     "relay_runtime.admission": "relay_runtime/admission.py",
     "relay_runtime.confinement": "relay_runtime/confinement.py",
     "relay_runtime.cli": "relay_runtime/cli.py",
+    "relay_runtime.provider": "relay_runtime/provider.py",
 }
 PAYLOAD_FILES = frozenset(PAYLOAD_MODULES.values())
+# Release management can inspect the published nine-module profile without
+# making legacy or arbitrary partial closures eligible for current execution.
+_LEGACY_PAYLOAD_FILES = frozenset({
+    "relay_core/__init__.py", "relay_core/cli.py", "relay_core/protocol.py",
+    "relay_core/store.py", "relay_runtime/__init__.py", "relay_runtime/enrollment.py",
+    "relay_runtime/admission.py", "relay_runtime/confinement.py", "relay_runtime/cli.py",
+})
+_RELEASE_PAYLOAD_SETS = (_LEGACY_PAYLOAD_FILES, PAYLOAD_FILES)
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
 _ID = re.compile(r"[0-9a-f]{32}\Z")
 _MAX_MEMBER = 1024 * 1024
@@ -79,7 +88,12 @@ def _json(payload):
 
 def manifest_for(payload):
     """Release-build helper, NOT approval of arbitrary source at install time."""
-    if set(payload) != PAYLOAD_FILES:
+    return _payload_manifest(payload)
+
+
+def _payload_manifest(payload, *, release_management=False):
+    accepted = _RELEASE_PAYLOAD_SETS if release_management else (PAYLOAD_FILES,)
+    if set(payload) not in accepted:
         raise BootstrapError("payload does not match the closed module set")
     members = {}
     for name, body in payload.items():
@@ -89,13 +103,14 @@ def manifest_for(payload):
     return _canonical({"format": 1, "members": members})
 
 
-def _validate_manifest(manifest):
+def _validate_manifest(manifest, *, release_management=False):
     if type(manifest) is not bytes or len(manifest) > 65536:
         raise BootstrapError("manifest must contain bounded approved bytes")
     value = _json(manifest)
+    accepted = _RELEASE_PAYLOAD_SETS if release_management else (PAYLOAD_FILES,)
     if (set(value) != {"format", "members"} or type(value["format"]) is not int
             or value["format"] != 1 or not isinstance(value["members"], dict)
-            or set(value["members"]) != PAYLOAD_FILES):
+            or set(value["members"]) not in accepted):
         raise BootstrapError("unsupported runtime manifest")
     for entry in value["members"].values():
         if (not isinstance(entry, dict) or set(entry) != {"sha256", "size"}
@@ -457,6 +472,8 @@ class VerifiedRuntime:
     def install_importer(self):
         if not (sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode):
             raise BootstrapError("runtime execution requires Python -I -S -B")
+        if set(self.bodies) != PAYLOAD_FILES:
+            raise BootstrapError("runtime execution requires the current closed module set")
         roots = ("relay_core", "relay_runtime")
         if any(name == root or name.startswith(root + ".") for name in sys.modules for root in roots):
             raise BootstrapError("a Relay module was loaded before generation verification")
@@ -584,7 +601,7 @@ class Release:
         return hashlib.sha256(self.bootstrap).hexdigest()
 
 
-def _release_record(version, bootstrap, bodies):
+def _release_record(version, bootstrap, bodies, *, release_management=False):
     if not isinstance(version, str) or not _RELEASE_VERSION.fullmatch(version):
         raise BootstrapError("release version must be a bounded filename-safe label")
     if not bootstrap or len(bootstrap) > _MAX_MEMBER:
@@ -592,7 +609,7 @@ def _release_record(version, bootstrap, bodies):
     return _canonical({
         "format": 1, "launcher_protocol": _LAUNCHER_PROTOCOL, "version": version,
         "bootstrap": {"sha256": hashlib.sha256(bootstrap).hexdigest(), "size": len(bootstrap)},
-        "runtime": _json(manifest_for(bodies)),
+        "runtime": _json(_payload_manifest(bodies, release_management=release_management)),
     })
 
 
@@ -610,7 +627,8 @@ def _release_from_directory(directory, expected_digest, *, private):
             or type(value["launcher_protocol"]) is not int
             or value["launcher_protocol"] != _LAUNCHER_PROTOCOL):
         raise BootstrapError("unsupported release or launcher protocol")
-    _validate_manifest(_canonical(value["runtime"]))
+    runtime_manifest = _canonical(value["runtime"])
+    manifest = _validate_manifest(runtime_manifest, release_management=True)
     bootstrap = _read(directory.fd, "bootstrap.py", private=private)
     payload = directory.child(directory.fd, "payload")
     if set(_bounded_names(payload)) != {"relay_core", "relay_runtime"}:
@@ -618,16 +636,16 @@ def _release_from_directory(directory, expected_digest, *, private):
     bodies = {}
     for package in ("relay_core", "relay_runtime"):
         folder = directory.child(payload, package)
-        leaves = {name.split("/")[1] for name in PAYLOAD_FILES if name.startswith(package + "/")}
+        leaves = {name.split("/")[1] for name in manifest["members"] if name.startswith(package + "/")}
         if set(_bounded_names(folder)) != leaves:
             raise BootstrapError("release package has unknown or missing members")
         for leaf in sorted(leaves):
             bodies[f"{package}/{leaf}"] = _read(folder, leaf, private=private)
-    if _release_record(value["version"], bootstrap, bodies) != record:
+    if _release_record(value["version"], bootstrap, bodies, release_management=True) != record:
         raise BootstrapError("release bytes failed bootstrap/runtime verification")
     directory.recheck()
     return Release(expected_digest, value["version"], record, bootstrap,
-                   manifest_for(bodies), MappingProxyType(bodies))
+                   runtime_manifest, MappingProxyType(bodies))
 
 
 def read_release(path, expected_digest, *, private=False):
