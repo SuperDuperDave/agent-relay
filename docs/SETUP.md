@@ -55,7 +55,7 @@ Multithread does not edit shell `PATH`, provider settings, permissions or sign-i
 and setup does not execute a provider or start a model session.
 
 For a fixed published version, replace `releases/latest/download/install.py` in
-the command with `releases/download/v0.4.1/install.py` after confirming that tag
+the command with `releases/download/v0.4.2/install.py` after confirming that tag
 lists the installer asset. To inspect its embedded selection
 without installing or enrolling, add `--check --json`. To install code without
 enrolling any project, omit `--enroll-repo`. The lower-level
@@ -215,7 +215,7 @@ the archive or apply an update. When an update is available, the JSON includes
 observed activation with `--yes`. An agent should review that selection, then
 execute the exact argv when updating is authorized. Do not pass JSON through
 shell `eval`. Applying an unattended update requires those exact selection
-fields; `--yes` alone is insufficient. Use `--version 0.4.1` to select that fixed
+fields; `--yes` alone is insufficient. Use `--version 0.4.2` to select that fixed
 published version for inspection or interactive application.
 
 Updates run only when requested; there is no background updater. Running

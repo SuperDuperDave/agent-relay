@@ -52,7 +52,6 @@ class PeerTests(unittest.TestCase):
                         "task = sys.stdin.buffer.read()\n"
                         f"Path({str(self.base / 'received-task.txt')!r}).write_bytes(task)\n"
                         f"receipt = {{'argv': sys.argv, 'cwd': os.getcwd(), 'pid': os.getpid(), 'pgid': os.getpgrp(), 'env': {{key: os.environ.get(key) for key in {list(self.environment)!r}}}}}\n"
-                        f"Path({str(self.receipt)!r}).write_text(json.dumps(receipt))\n"
                         f"spec = json.loads(Path({str(self.response)!r}).read_text())\n"
                         "session_flag = '--resume' if '--resume' in sys.argv else '--session-id'\n"
                         "native = {'type': 'result', 'subtype': 'success', 'is_error': False,\n"
@@ -61,9 +60,12 @@ class PeerTests(unittest.TestCase):
                         "          'terminal_reason': 'completed'}\n"
                         "native.update(spec.get('native', {}))\n"
                         "for key in spec.get('remove', []): native.pop(key, None)\n"
+                        "body = spec['raw'] if 'raw' in spec else json.dumps(native)\n"
                         "print('artificial provider diagnostic', file=sys.stderr, flush=True)\n"
+                        "if spec.get('before_sleep'): print(body, flush=True)\n"
+                        f"Path({str(self.receipt)!r}).write_text(json.dumps(receipt))\n"
                         "if spec.get('sleep'): time.sleep(20)\n"
-                        "print(spec['raw'] if 'raw' in spec else json.dumps(native), flush=True)\n"
+                        "if not spec.get('before_sleep'): print(body, flush=True)\n"
                         "sys.exit(spec.get('exit', 0))\n")
         self.count = 0
 
@@ -109,7 +111,7 @@ class PeerTests(unittest.TestCase):
         self.assertEqual(task, (evidence / "task.txt").read_bytes())
         raw_output = (evidence / "stdout.json").read_bytes()
         self.assertEqual({"bytes": len(raw_output), "sha256": hashlib.sha256(raw_output).hexdigest(),
-                          "truncated": False}, result["stdout_observation"])
+                          "truncated": False, "scope": "bounded_read"}, result["stdout_observation"])
         for path in evidence.iterdir():
             self.assertEqual(0o600, path.stat().st_mode & 0o777)
         self.assertEqual(0o700, evidence.stat().st_mode & 0o777)
@@ -134,6 +136,8 @@ class PeerTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual("call_prepared", result["state"])
         self.assertFalse(result["provider_started"])
+        self.assertNotIn("stdout_observation", result)
+        self.assertNotIn("stdout_observation_error", result)
         self.assertFalse(self.calls.exists())
         self.assertFalse(evidence.exists())
 
@@ -173,14 +177,120 @@ class PeerTests(unittest.TestCase):
         self.assertEqual("uncertain", result["state"])
         self.assertTrue(result["provider_started"])
         self.assertIsNone(result["session_id"])
+        self.assertIsNone(result["result"])
+        self.assertEqual("unknown", result["provider_tools"])
+        self.assertEqual("unknown", result["hook_delivery"])
+        self.assertEqual("not_checked", result["workflow_completion"])
         self.assertEqual("call\n", self.calls.read_text())
         self.assertEqual(self.task.read_bytes(), (self.base / "received-task.txt").read_bytes())
         evidence = Path(result["evidence_directory"])
+        self.assertEqual(b"", (evidence / "stdout.json").read_bytes())
+        self.assertEqual({"bytes": 0, "sha256": hashlib.sha256(b"").hexdigest(),
+                          "truncated": False, "scope": "bounded_read"}, result["stdout_observation"])
         self.assertIn("artificial provider diagnostic", (evidence / "stderr.txt").read_text())
         self.assertEqual(result["requested_session_id"], json.loads((evidence / "request.json").read_text())["requested_session_id"])
+        self.assertEqual(result, json.loads((evidence / "result.json").read_text()))
+
+    def test_timeout_retains_partial_or_valid_stdout_without_validating_or_exposing_it(self):
+        requested = "00000000-0000-4000-8000-000000000001"
+        secret = "artificial-private-output-secret"
+        for output_spec in ({"raw": '{"unfinished": "' + secret},
+                            {"native": {"result": secret}}):
+            with self.subTest(output_spec=output_spec):
+                self.calls.unlink(missing_ok=True)
+                self.configure(sleep=True, before_sleep=True, **output_spec)
+                code, result, _ = self.invoke("--timeout", "1", "--resume", requested)
+                self.assertEqual(1, code)
+                self.assertEqual("uncertain", result["state"])
+                self.assertTrue(result["needs_attention"])
+                self.assertIsNone(result["session_id"])
+                self.assertIsNone(result["result"])
+                self.assertNotIn("observed_session_id", result)
+                self.assertNotIn("provider_subtype", result)
+                self.assertEqual(requested, result["requested_session_id"])
+                self.assertIn("timed out", result["message"])
+                self.assertEqual("call\n", self.calls.read_text())
+                evidence = Path(result["evidence_directory"])
+                body = (evidence / "stdout.json").read_bytes()
+                self.assertIn(secret.encode(), body)
+                self.assertEqual({"bytes": len(body), "sha256": hashlib.sha256(body).hexdigest(),
+                                  "truncated": False, "scope": "bounded_read"}, result["stdout_observation"])
+                self.assertEqual(result, json.loads((evidence / "result.json").read_text()))
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    peer._display_peer(result)
+                self.assertNotIn(secret, output.getvalue())
+                self.assertNotIn(secret, json.dumps(result))
+                self.assertIn("Requested session (unverified): " + requested, output.getvalue())
+                self.assertNotIn("Peer session:", output.getvalue())
+                self.assertNotIn("--resume", output.getvalue())
+
+    def test_timeout_bounded_observation_preserves_complete_stdout(self):
+        body = ("artificial-private-output-" * 20 + "\n").encode()
+        self.configure(sleep=True, before_sleep=True, raw=body.decode().rstrip("\n"))
+        read_cap = 32
+        with mock.patch.object(peer, "_MAX_RESULT", read_cap):
+            code, result, _ = self.invoke("--timeout", "1")
+        self.assertEqual(1, code)
+        self.assertEqual("uncertain", result["state"])
+        self.assertIn("timed out", result["message"])
+        prefix = body[:read_cap + 1]
+        self.assertEqual({"bytes": len(prefix), "sha256": hashlib.sha256(prefix).hexdigest(),
+                          "truncated": True, "scope": "bounded_read"}, result["stdout_observation"])
+        self.assertEqual(body, (Path(result["evidence_directory"]) / "stdout.json").read_bytes())
+        self.assertEqual("call\n", self.calls.read_text())
+
+    def test_timeout_unreadable_stdout_keeps_original_outcome_and_unknown_observation(self):
+        body = "artificial-private-output-secret"
+        self.configure(sleep=True, before_sleep=True, raw=body)
+        original_open = Path.open
+
+        def unavailable_stdout(path, mode="r", *args, **kwargs):
+            if path.name == "stdout.json" and mode == "rb":
+                raise OSError("artificial-private-read-error")
+            return original_open(path, mode, *args, **kwargs)
+
+        with mock.patch.object(Path, "open", unavailable_stdout):
+            code, result, _ = self.invoke("--timeout", "1")
+        self.assertEqual(1, code)
+        self.assertEqual("uncertain", result["state"])
+        self.assertTrue(result["needs_attention"])
+        self.assertIn("timed out", result["message"])
+        self.assertIsNotNone(result["process_exit_code"])
+        self.assertIsNone(result["session_id"])
+        self.assertIsNone(result["result"])
+        self.assertNotIn("stdout_observation", result)
+        self.assertEqual("unavailable; byte count and digest are unknown", result["stdout_observation_error"])
+        self.assertNotIn("artificial-private-read-error", json.dumps(result))
+        evidence = Path(result["evidence_directory"])
+        self.assertEqual((body + "\n").encode(), (evidence / "stdout.json").read_bytes())
+        self.assertEqual(result, json.loads((evidence / "result.json").read_text()))
+        self.assertEqual("call\n", self.calls.read_text())
+
+    def test_provider_spawn_failure_does_not_observe_unstarted_stdout(self):
+        original_open = Path.open
+
+        def reject_stdout_read(path, mode="r", *args, **kwargs):
+            if path.name == "stdout.json" and mode == "rb":
+                self.fail("Provider never started; stdout must not be inspected")
+            return original_open(path, mode, *args, **kwargs)
+
+        with (mock.patch.object(peer.subprocess, "Popen", side_effect=OSError("artificial spawn failure")),
+              mock.patch.object(peer, "prepare", return_value={"argv": [str(self.provider)], "repo": str(self.repo)}),
+              mock.patch.object(Path, "open", reject_stdout_read)):
+            code, result, _ = self.invoke()
+        self.assertEqual(1, code)
+        self.assertEqual("unavailable", result["state"])
+        self.assertEqual("provider_spawn", result["unavailable_stage"])
+        self.assertFalse(result["provider_started"])
+        self.assertNotIn("stdout_observation", result)
+        self.assertNotIn("stdout_observation_error", result)
+        self.assertFalse(self.calls.exists())
+        self.assertEqual(b"", (Path(result["evidence_directory"]) / "stdout.json").read_bytes())
 
     def test_termination_signals_stop_native_group_and_retain_uncertain_result(self):
-        self.configure(sleep=True)
+        body = b"artificial-private-signal-output\n"
+        self.configure(sleep=True, before_sleep=True, raw=body.decode().rstrip("\n"))
         # This cancellation fixture explicitly opts into termination signals;
         # the invoking shell or CI runner may have ignored them on entry.
         wrapper_entry = ("import runpy, signal, sys\n"
@@ -224,6 +334,11 @@ class PeerTests(unittest.TestCase):
                     self.assertIsNotNone(result["process_exit_code"])
                     self.assertTrue(result["needs_attention"])
                     self.assertIsNone(result["session_id"])
+                    self.assertIsNone(result["result"])
+                    self.assertIn("interrupted", result["message"])
+                    self.assertEqual(body, (evidence / "stdout.json").read_bytes())
+                    self.assertEqual({"bytes": len(body), "sha256": hashlib.sha256(body).hexdigest(),
+                                      "truncated": False, "scope": "bounded_read"}, result["stdout_observation"])
                     self.assertEqual(result, json.loads((evidence / "result.json").read_text()))
                     self.assertEqual("call\n", self.calls.read_text())
                     self.assertEqual(self.task.read_bytes(), (evidence / "task.txt").read_bytes())

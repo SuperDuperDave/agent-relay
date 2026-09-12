@@ -360,14 +360,23 @@ def _call_signals():
             signal.signal(number, handler)
 
 
-def _interpret(directory, envelope):
+def _observe_stdout(directory, envelope):
     path = directory / "stdout.json"
     # Bound the read itself, not just a prior stat: a native descendant may
     # still hold the output descriptor. Bind the summary to the bytes observed.
-    with path.open("rb") as stream:
-        body = stream.read(_MAX_RESULT + 1)
+    try:
+        with path.open("rb") as stream:
+            body = stream.read(_MAX_RESULT + 1)
+    except OSError:
+        envelope["stdout_observation_error"] = "unavailable; byte count and digest are unknown"
+        raise
     envelope["stdout_observation"] = {"bytes": len(body), "sha256": hashlib.sha256(body).hexdigest(),
-                                      "truncated": len(body) > _MAX_RESULT}
+                                      "truncated": len(body) > _MAX_RESULT, "scope": "bounded_read"}
+    return body
+
+
+def _interpret(directory, envelope):
+    body = _observe_stdout(directory, envelope)
     if len(body) > _MAX_RESULT:
         envelope["message"] = "Provider output exceeded the summary bound; inspect retained output before continuing."
         return
@@ -633,6 +642,16 @@ def _run_peer(args, interruption):
         if "control_fault" in envelope:
             envelope["needs_attention"] = True
             code = 1
+        if (process is not None and not streaming
+                and "stdout_observation" not in envelope and "stdout_observation_error" not in envelope):
+            # An interrupted final-JSON call has no validated result. Preserve
+            # only the observation after cleanup; never promote captured bytes
+            # into a returned turn or overwrite the original interruption.
+            try:
+                _observe_stdout(directory, envelope)
+            except OSError:
+                envelope["needs_attention"] = True
+                code = code or 1
     if directory is not None:
         try:
             _record(directory, "result.json", envelope)
@@ -670,6 +689,7 @@ def _display_peer(envelope):
         ("server_cleanup", "Provider cleanup"),
         ("owned_process_cleanup", "Process exit"),
         ("stdout_completion", "Output completion"),
+        ("stdout_observation_error", "Output observation"),
     )]
     if envelope["state"] == "provider_error":
         details.append(("Provider result", envelope.get("provider_subtype")))
@@ -692,13 +712,28 @@ def _display_peer(envelope):
         if isinstance(value, str) and value:
             print(f"{label}: {value[:2000]}" + (" [Detail truncated.]" if len(value) > 2000 else ""))
     observation = envelope.get("stdout_observation")
-    if isinstance(observation, dict) and observation.get("truncated"):
-        print("Output capture was truncated; only the captured prefix is available.")
+    if isinstance(observation, dict):
+        size = observation.get("bytes")
+        if envelope.get("needs_attention") and type(size) is int and size >= 0:
+            if size == 0:
+                print("Provider stdout: no bytes observed; provider activity is unknown.")
+            else:
+                print(f"Provider stdout: {size} bytes observed; inspect retained stdout.json.")
+        if observation.get("truncated"):
+            if observation.get("scope") == "bounded_read":
+                print("Output observation was truncated; the byte count and digest cover only the read prefix. Inspect retained stdout.json for available output.")
+            else:
+                print("Output capture was truncated; only the captured prefix is available.")
     if envelope.get("permission_denials"):
         print("Permission requests were denied; review them in the local result before continuing.")
     print(envelope.get("message", "Inspect the peer result."))
     if envelope["session_id"]:
         print(f"Peer session: {envelope['session_id']}")
+    else:
+        requested = envelope.get("requested_session_id")
+        if isinstance(requested, str) and requested:
+            print(f"Requested session (unverified): {requested[:2000]}" +
+                  (" [Detail truncated.]" if len(requested) > 2000 else ""))
     observed_session = envelope.get("observed_session_id")
     if isinstance(observed_session, str) and observed_session:
         print(f"Observed session (unverified): {observed_session[:2000]}" +

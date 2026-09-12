@@ -126,11 +126,65 @@ class PeerOutputTests(unittest.TestCase):
         self.assertEqual(observed, envelope["observed_session_id"])
         self.assertIsNone(envelope["session_id"])
         self.assertIsNone(envelope["result"])
+        self.assertIn("Requested session (unverified): " + envelope["requested_session_id"], output)
         self.assertIn("Observed session (unverified): " + observed, output)
         self.assertIn("without automatically resuming either identity", output)
         self.assertNotIn("Peer session:", output)
         self.assertNotIn("--resume", output)
         self.assertNotIn("Unverified foreign answer", output)
+
+    def test_timeout_stdout_count_does_not_expose_raw_output_or_imply_idle_provider(self):
+        for count in (0, 37):
+            with self.subTest(bytes=count):
+                output = self.display(
+                    state="uncertain", result=None, needs_attention=True, session_id=None,
+                    stdout_observation={"bytes": count, "sha256": "artificial-private-digest",
+                                        "truncated": False, "scope": "bounded_read",
+                                        "raw": "artificial-private-output-secret"},
+                    message="Call interrupted or timed out; inspect retained output before any follow-up.",
+                )
+                if count:
+                    self.assertIn(f"{count} bytes observed", output)
+                else:
+                    self.assertIn("no bytes observed", output)
+                    self.assertIn("provider activity is unknown", output)
+                self.assertNotIn("artificial-private-output-secret", output)
+                self.assertNotIn("artificial-private-digest", output)
+                self.assertNotIn("Output capture was truncated", output)
+
+    def test_bounded_stdout_read_is_distinct_from_truncated_capture(self):
+        output = self.display(
+            state="uncertain", result=None, needs_attention=True, session_id=None,
+            stdout_observation={"bytes": 33, "sha256": "artificial-private-digest",
+                                "truncated": True, "scope": "bounded_read"},
+        )
+        self.assertIn("33 bytes observed", output)
+        self.assertIn("byte count and digest cover only the read prefix", output)
+        self.assertIn("retained stdout.json", output)
+        self.assertNotIn("only the captured prefix is available", output)
+        self.assertNotIn("Output capture was truncated", output)
+        self.assertNotIn("artificial-private-digest", output)
+
+    def test_unavailable_stdout_observation_does_not_claim_empty_output(self):
+        output = self.display(
+            state="uncertain", result=None, needs_attention=True, session_id=None,
+            stdout_observation_error="unavailable; byte count and digest are unknown",
+        )
+        self.assertIn("Output observation: unavailable; byte count and digest are unknown", output)
+        self.assertNotIn("no bytes observed", output)
+        self.assertNotIn("0 bytes", output)
+
+    def test_requested_session_stays_unverified_and_bounded(self):
+        requested = "artificial-requested-session-" + "x" * 2100
+        output = self.display(state="uncertain", result=None, needs_attention=True,
+                              session_id=None, requested_session_id=requested)
+        self.assertIn("Requested session (unverified): " + requested[:2000] + " [Detail truncated.]", output)
+        self.assertNotIn(requested[:2001], output)
+        self.assertNotIn("Peer session:", output)
+        self.assertNotIn("--resume", output)
+        verified = self.display(requested_session_id=requested)
+        self.assertIn("Peer session: artificial-session", verified)
+        self.assertNotIn("Requested session", verified)
 
     def test_returned_answer_survives_visible_recording_failure(self):
         output = self.display(needs_attention=True,
