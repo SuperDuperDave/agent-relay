@@ -1,9 +1,23 @@
-# Relay
+# Multithread
 
-Relay lets coding agents coordinate across sessions and Git worktrees. Codex can
-call Claude Code for a scoped task, receive its answer and continue working.
+**Native collaboration for coding agents.**
+
+A Mainthread project · [Project page](https://mainthread.ai/work/relay/)
+
+Give your work additional threads while keeping its purpose, ownership, and
+results connected.
+
+Multithread lets coding agents coordinate across sessions and Git worktrees.
+Codex can call Claude Code for a scoped task, receive its answer and continue
+working.
 A durable local ledger keeps resource claims, commit-backed handoffs and explicit
 acknowledgements available across interruptions.
+
+Multithread was previously called **Agent Relay**. Existing installations keep
+using `relay`; release filenames and the
+[repository URL](https://github.com/SuperDuperDave/agent-relay) remain unchanged.
+The guides retain Relay where they describe that runtime and its recorded
+evidence.
 
 - Call Claude through your existing provider installation and sign-in.
 - Claim shared resources with exact ownership that survives interrupted sessions.
@@ -63,6 +77,13 @@ or missing providers. Authentication, hook delivery and provider tools remain
 unchecked until observed in a native session.
 
 ## Collaborate
+
+A thread is a separately scoped agent workstream; the main thread carries the
+continuing objective. You might ask an agent to “multithread this investigation”
+or “use up to three additional threads.” These are plain-language instructions
+about intent and capacity, with a ceiling rather than a quota. They are not CLI
+commands or a built-in scheduler; execution depends on available tools, supported
+providers and authorized use.
 
 Follow [Call Claude and continue your task](docs/PEER.md) for the automatic
 call/return workflow, task scope, results and exact-session follow-up. It uses
