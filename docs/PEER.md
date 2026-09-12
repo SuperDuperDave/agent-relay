@@ -1,18 +1,14 @@
 # Call another native provider and continue your task
 
-Multithread (formerly Agent Relay) includes `multithread peer`: a coding agent calls
-another native provider, receives its answer as the command result, and continues
-the same task. There is no second application or message-forwarding service.
+With `multithread peer`, a coding agent calls another native provider, receives
+its answer as the command result, and continues the same task. There is no
+second application or message-forwarding service.
 
-**v0.4 preview.** The preferred installed command is `multithread`; `relay`
-remains a compatible entry point to the same installation and ledger. The
-published v0.3.0 release already includes Codex calls and live input, using
-`relay`. Check the selected release's version and verification results before
-installation. The earlier
-v0.2.0 release supports Claude call/return and exact-session resume; its archive
-lacks the v0.3 additions. The historical v0.1.0 archive has no peer command.
-Use the [setup guide](SETUP.md) for a published release. The
-[source entry](#use-the-source-entry) is available for reviewed development work.
+Start with [setup and native trust review](SETUP.md), then request a
+[first collaboration](#first-collaboration), [assess its result](#read-the-result-before-continuing)
+and choose any [exact-session follow-up](#follow-up-in-the-same-native-session).
+The [compatibility notes](SETUP.md#compatibility) cover older releases and `relay`.
+The [source entry](#use-the-source-entry) is available for reviewed development work.
 
 See the
 [project page](https://mainthread.ai/work/relay/) for the Multithread introduction.
@@ -53,8 +49,9 @@ through the provider's normal interface. Multithread does not certify account bi
 After [setup preparation](SETUP.md#check-readiness-or-enroll-another-project),
 paste this into your coding agent in the enrolled repository. It authorizes one
 native call and its scoped provider usage. Preparation alone does not establish
-native sign-in, hook trust or tool execution; complete any required native trust
-review through the provider's normal interface before calling.
+native sign-in, hook trust or tool execution; complete any required
+[native trust review](SETUP.md#review-native-trust) through the provider's normal
+interface before calling.
 
 ```text
 Use Multithread for one scoped, read-only collaboration in this Git repository.
@@ -114,10 +111,9 @@ Use the installed launcher's actual path, normally:
   --task-file review-task.txt --json
 ```
 
-Select `codex` in the same command to call Codex. Existing v0.3 installations
-support both providers with `~/.local/bin/relay peer`; update for the new name.
-Either initiating provider can use these commands through its ordinary shell
-tools. The caller's provider does not determine the peer's provider.
+Select `codex` in the same command to call Codex. Either initiating provider can
+use these commands through its ordinary shell tools. The caller's provider does
+not determine the peer's provider.
 
 `--json` returns structured output **and executes the call**. Add `--dry-run`
 to inspect the task hash and native arguments without starting a provider or writing
@@ -192,26 +188,29 @@ call created. A valid answer survives incomplete stdout observation, marked with
 `needs_attention`. Neither a terminal result nor termination proves that every
 background operation completed.
 
-For an intentional follow-up, use the exact returned native session identity
-and the same checkout. Claude uses a session UUID:
+The response includes measured call duration and provider-reported usage/turns
+when available. `estimated_cost_usd` is a provider estimate, not an observed
+subscription charge. Missing measurements remain unknown. These measurements
+do not establish net token savings or broad reliability.
+
+## Follow up in the same native session
+
+After assessing the previous result, choose whether further provider usage is
+warranted and authorized. Use the exact returned native session identity and
+the same checkout for a deliberate follow-up. Claude uses a session UUID:
 
 ```sh
 ~/.local/bin/multithread peer claude --repo /absolute/enrolled/reviewer-checkout \
   --resume <exact-session-uuid> --task-file follow-up.txt --json
 ```
 
-For Codex in v0.3, select `codex` and pass its returned `session_id`
+For Codex, select `codex` and pass its returned `session_id`
 unchanged to `--resume`. Treat that thread ID as opaque; do not convert it to a
 UUID or substitute `native_session_id`.
 
 There is no latest-session lookup or automatic concurrent resume. A fresh call
 without `--resume` creates a fresh session. A resume must be a deliberate choice
 after checking the previous outcome, including any partial work.
-
-The response includes measured call duration and provider-reported usage/turns
-when available. `estimated_cost_usd` is a provider estimate, not an observed
-subscription charge. Missing measurements remain unknown. These measurements
-do not establish net token savings or broad reliability.
 
 ## Update a running peer
 
@@ -221,9 +220,6 @@ starting the call: an update can be picked up between tool calls or become a
 later turn in the same session. This opt-in can use additional provider turns;
 the original wall-time limit still applies to the whole call. It is not a
 promise that an update will affect work already in progress.
-
-Live input requires v0.3 or later; the `multithread` launcher requires v0.4 or
-later. With v0.3, use `~/.local/bin/relay peer` in these commands.
 
 Choose `--output-dir` when launching so another cooperating process can locate
 the call while the initiating tool waits. The directory must not already exist.

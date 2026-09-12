@@ -1,20 +1,15 @@
 # Set up Multithread
 
-Install the **selected published preview**, enroll your Git repository and prepare native
-Codex/Claude collaboration from one entry point. The package includes setup,
-interactive launch, native peer calls and updates; no Multithread source checkout is
-needed for these commands.
+Install the **selected published preview**, enroll your Git repository and prepare
+native Codex/Claude collaboration. No Multithread source checkout is needed.
+The path to a first result is:
 
-This guide accompanies the **v0.4 preview**, which installs the preferred
-`multithread` command. The published v0.3.0 release already supports both native
-providers, exact-session resume and live input through `relay`. Check the
-selected release's version and package results before installation. Existing
-v0.3 installations can use `~/.local/bin/relay update` to review the naming update.
+1. [Install and enroll](#install-and-enroll), or give your agent the [setup prompt](#ask-your-coding-agent).
+2. [Review native trust](#review-native-trust) for the chosen repository and provider.
+3. [Request one collaboration](#start-collaborating), assess its result, then choose any exact-session follow-up.
 
-Multithread was previously called **Agent Relay**. The `relay` compatibility
-command, release filenames, repository URLs and internal `.relay` storage remain
-unchanged. Both command names use one installation and the same ledger. See the
-[project page](https://mainthread.ai/work/relay/) for an introduction.
+These commands use the current `multithread` entry point. For older releases and
+the retained `relay` command, see [compatibility](#compatibility).
 
 Use an ordinary x86-64 Linux account with Python 3.12 at `/usr/bin/python3`, Git
 at `/usr/bin/git`, Landlock ABI3+, procfs and supported filesystem birth times.
@@ -55,13 +50,12 @@ uncertain state refuses instead of replacing unknown files. Installation and
 enrollment preserve existing claims and pending work.
 
 Use the exact launcher path printed by the installer, normally
-`~/.local/bin/multithread` with v0.4 or later. Account paths come from the OS
-account database. Multithread does
-not edit shell `PATH`, provider settings, permissions or sign-ins, and setup does
-not execute a provider or start a model session.
+`~/.local/bin/multithread`. Account paths come from the OS account database.
+Multithread does not edit shell `PATH`, provider settings, permissions or sign-ins,
+and setup does not execute a provider or start a model session.
 
 For a fixed published version, replace `releases/latest/download/install.py` in
-the command with `releases/download/v0.4.0/install.py` after confirming that tag
+the command with `releases/download/v0.4.1/install.py` after confirming that tag
 lists the installer asset. To inspect its embedded selection
 without installing or enrolling, add `--check --json`. To install code without
 enrolling any project, omit `--enroll-repo`. The lower-level
@@ -149,16 +143,7 @@ repository setup unresolved. After a timeout or uncertain enrollment result,
 run the printed read-only check before deciding whether to retry. Keep local
 diagnostics private and sanitize anything shared.
 
-## Start collaborating
-
-Use the copyable [first-collaboration prompt](PEER.md#first-collaboration) after
-preparation. It authorizes one read-only native review, asks the calling agent to
-assess the returned findings, and keeps unresolved work visible. The
-[native peer guide](PEER.md) also covers exact-session follow-up and live input.
-Calls use the existing provider's normal environment and permission mode.
-Subscription sign-in can be used; API keys or other provider configuration can
-change the billing path. Check that through the provider's normal interface.
-Multithread does not certify account billing.
+## Review native trust
 
 To start an interactive session with invocation-only Multithread hooks, run the exact
 command setup printed. With the usual launcher and provider on `PATH`:
@@ -172,11 +157,34 @@ hooks, then type `launch`. Add `--json` to prepare this plan without starting th
 provider. Existing sessions do not acquire new invocation arguments. Complete
 native sign-in or hook trust through the provider's normal interface, and review
 existing hooks for duplicates or conflicting overrides.
+For Codex, open `/hooks` and review the exact generated commands. Claude's
+noninteractive peer mode does not show the interactive workspace trust dialog;
+review the repository and its provider configuration before calling. See
+[provider-specific preparation](PEER.md#before-calling).
 
 An agent authorized only for setup should report these commands for the user.
-Provider launches and peer calls require authorization for that use. Peer calls
-have no extra interactive confirmation: `multithread peer claude --json` executes the
-call; add `--dry-run` to inspect without execution.
+Provider launches and peer calls require authorization for that use. A prepared
+plan or a listed trusted hook does not prove hook delivery or native tool execution.
+
+## Start collaborating
+
+Use the copyable [first-collaboration prompt](PEER.md#first-collaboration) once
+preparation and any required native trust review are complete. It authorizes
+one read-only native review and asks the calling agent to inspect and assess the
+returned findings. Peer calls have no extra interactive confirmation:
+`multithread peer claude --json` executes the call; add `--dry-run` to inspect
+without execution.
+
+Check the [result and any unresolved work](PEER.md#read-the-result-before-continuing).
+An unavailable provider, refused action, uncertain outcome, returned answer and
+completed review establish different things. If further work is warranted and
+authorized, [resume the exact returned native session](PEER.md#follow-up-in-the-same-native-session)
+in the same checkout. The peer guide separately covers [input to a running call](PEER.md#update-a-running-peer).
+
+Calls use the existing provider's normal environment and permission mode.
+Subscription sign-in can be used; API keys or other provider configuration can
+change the billing path. Check that through the provider's normal interface.
+Multithread does not certify account billing.
 
 The [two-worktree review walkthrough](PROVIDERS.md#try-a-review-across-two-worktrees)
 is an alternative using manual wakes and explicit Git operations. The
@@ -194,8 +202,6 @@ publisher selection before running new code. It then verifies the pinned archive
 and applies the exact selection. A matching release is reported as
 up to date. It uses the exact observed activation, preserves prior releases and
 does not enroll another repository unless you explicitly add `--enroll-repo`.
-For an existing v0.1.0 installation without `relay update`, use the installer
-above to review and apply the new selection.
 
 For read-only inspection, use `multithread update --check` or:
 
@@ -209,7 +215,7 @@ the archive or apply an update. When an update is available, the JSON includes
 observed activation with `--yes`. An agent should review that selection, then
 execute the exact argv when updating is authorized. Do not pass JSON through
 shell `eval`. Applying an unattended update requires those exact selection
-fields; `--yes` alone is insufficient. Use `--version 0.4.0` to select that fixed
+fields; `--yes` alone is insufficient. Use `--version 0.4.1` to select that fixed
 published version for inspection or interactive application.
 
 Updates run only when requested; there is no background updater. Running
@@ -218,3 +224,27 @@ release. Finish active coordination before switching between incompatible
 releases, and start new sessions deliberately when needed. An update does not
 restart providers or certify compatibility of active work. For an older release,
 use [explicit rollback](engineering/INSTALLATION.md#upgrades-and-explicit-rollback).
+
+## Compatibility
+
+Multithread was previously called **Agent Relay**. From v0.4, use `multithread`
+for new scripts and instructions. `relay` remains supported this release, using
+the same installation and ledger; it has no automatic expiry, removal or per-hook
+warning. Retiring it requires a future deliberate migration of saved hooks and
+scripts. Release filenames, repository URLs and internal `.relay` storage remain
+unchanged.
+
+| Installed release | Command and peer capabilities |
+|---|---|
+| v0.4.x | Preferred `multithread` command, with compatible `relay`; both native providers, exact-session resume and live input. |
+| v0.3.0 | Use `relay` for both native providers, exact-session resume and live input; `~/.local/bin/relay update` reviews an update. |
+| v0.2.0 | Use `relay`; Claude call/return and exact-session resume, without the v0.3 additions. |
+| v0.1.0 | No peer command or `relay update`; use the [installer above](#install-and-enroll) to review and apply a new selection. |
+
+Check the selected release's version and package results before installation.
+Capabilities and native observations have separate scopes: the
+[peer evidence](PEER.md#coordination-and-verification-scope) retains installed
+Claude v0.2 observations and the v0.3 source-entry observations, including
+interrupted calls and separately observed artifacts. They do not establish
+fresh-account onboarding or broader platform support. For management after
+rollback, follow the [latest reviewed bootstrap guidance](engineering/INSTALLATION.md#upgrades-and-explicit-rollback).

@@ -193,6 +193,26 @@ class EnrollmentTests(unittest.TestCase):
         self.assert_refusal_unchanged(lambda: self.registry.enroll(self.repo))
         self.assertFalse((self.repo / ".relay").exists())
 
+    def test_permission_refusal_names_observed_directory_mode_and_requirement(self):
+        for private in (False, True):
+            with self.subTest(private=private):
+                path = self.base / ("private\n\x1b[2J" if private else "shared 雪")
+                path.mkdir()
+                path.chmod(0o750 if private else 0o775)
+                before = snapshot(self.base)
+                with subject._Custody() as custody:
+                    with self.assertRaises(subject.EnrollmentError) as refused:
+                        custody.get(path, private=private)
+                message = str(refused.exception)
+                self.assertIn("enrollment directory permissions are unsafe", message)
+                self.assertIn(json.dumps(str(path), ensure_ascii=True), message)
+                self.assertIn("observed mode 0750" if private else "observed mode 0775", message)
+                self.assertIn("group/other access is not allowed for a private directory"
+                              if private else "group/other write access is not allowed", message)
+                self.assertNotIn("\x1b", message)
+                self.assertNotIn("\n", message)
+                self.assertEqual(before, snapshot(self.base))
+
     def test_private_registry_leaf_below_writable_parent_refuses(self):
         self.registry.enroll(self.repo)
         self.registry.root.parent.chmod(0o775)

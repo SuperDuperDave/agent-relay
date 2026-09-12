@@ -1,6 +1,7 @@
 """Readiness composition and partial-success boundaries; no provider execution."""
 
 from contextlib import redirect_stdout
+from copy import deepcopy
 import io
 import json
 import os
@@ -67,6 +68,14 @@ class SetupTests(unittest.TestCase):
         with redirect_stdout(output):
             code = setup.setup_main(["--repo", str(self.repo), "--json", *extra])
         return code, json.loads(output.getvalue())
+
+    def display(self, report):
+        before = deepcopy(report)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            setup._display(report)
+        self.assertEqual(before, report, "Human rendering changed the structured report")
+        return output.getvalue()
 
     def test_default_and_check_read_existing_work_without_init_or_provider_execution(self):
         for extra in ((), ("--check",)):
@@ -248,6 +257,72 @@ class SetupTests(unittest.TestCase):
         self.assertTrue(all(row[0] == self.launcher for row in self.commands))
         self.assertFalse(result["changes_provider_settings"])
         self.assertFalse(result["changes_permissions"])
+        self.assertIn("  Command: " + shlex.join(command), self.display(result))
+
+    def test_human_provider_error_is_visible_beside_state_without_erasing_readiness(self):
+        def prepare(client, repo, launcher, path):
+            if client == "claude":
+                raise setup.provider.LaunchError("synthetic hook plan does not match this checkout")
+            return {"argv": [str(path)], "provider_started": False}
+        with mock.patch.object(setup.provider, "prepare", side_effect=prepare):
+            code, result = self.invoke("--codex", "/fixture/codex", "--claude", "/fixture/claude")
+        output = self.display(result)
+        self.assertEqual(0, code)
+        self.assertIn("Multithread is ready for this repository.", output)
+        self.assertIn("Runtime: verified", output)
+        self.assertIn("Repository: verified", output)
+        self.assertIn("codex: prepared", output)
+        self.assertIn("claude: unavailable; synthetic hook plan does not match this checkout", output)
+        self.assertIn("Provider sign-in, hook delivery and tool execution: not checked.", output)
+        self.assertIn("--provider /fixture/claude --json", output)
+        self.assertEqual("unknown", result["provider_authentication"])
+        self.assertFalse(result["provider_started"])
+
+    def test_human_version_uses_observed_activation_and_does_not_require_new_json_fields(self):
+        for version in ("0.4.0", None):
+            with self.subTest(version=version):
+                activation = {**self.runtime["activation"]}
+                if version is not None:
+                    activation["version"] = version
+                self.responses["runtime"] = (0, json.dumps({**self.runtime, "activation": activation}).encode(), b"")
+                code, result = self.invoke()
+                output = self.display(result)
+                self.assertEqual(0, code)
+                self.assertIn("Version: " + (version or "not reported"), output)
+                self.assertIn("Release: " + activation["release_id"], output)
+                self.assertEqual(activation, result["runtime"]["data"]["activation"])
+                self.assertIn("claude: missing", output)
+                self.assertNotIn("claude: unavailable", output)
+        self.responses["runtime"] = (1, b"", b"synthetic unavailable runtime\n")
+        code, result = self.invoke()
+        output = self.display(result)
+        self.assertEqual(1, code)
+        self.assertIn("Multithread setup needs attention.", output)
+        self.assertNotIn("Version:", output)
+        self.assertNotIn("Release:", output)
+
+    def test_human_paths_and_errors_escape_controls_without_changing_json_or_command_arguments(self):
+        selected = "/fixture/provider\x1b[31m\nFAKE: ready\r\u202e"
+        message = "Cannot prepare " + selected
+        with mock.patch.object(setup.provider, "prepare", side_effect=setup.provider.LaunchError(message)):
+            code, result = self.invoke("--claude", selected)
+        self.assertEqual(0, code)
+        self.assertEqual(message, result["providers"]["claude"]["message"])
+        self.assertEqual(selected, result["providers"]["claude"]["executable"])
+        # Exercise the same display boundary for paths and retained diagnostics.
+        result["repo"] += "\x1b[2J"
+        result["repository"]["identity"]["git_common_dir"] += "\u202e"
+        result["launcher"] += "\rFAKE: ready"
+        output = self.display(result)
+        for control in ("\x1b", "\r", "\u202e"):
+            self.assertNotIn(control, output)
+        self.assertNotIn("\nFAKE: ready", output)
+        self.assertIn("雪", output)
+        self.assertIn("claude: unavailable; Cannot prepare", output)
+        command_line = next(line for line in output.splitlines() if line.startswith("  Command (JSON argv): "))
+        argv = json.loads(command_line.split(": ", 1)[1])
+        self.assertEqual(selected, argv[argv.index("--provider") + 1])
+        self.assertEqual(result["next_actions"][-1]["command"], argv)
 
     def test_unavailable_provider_does_not_erase_runtime_and_repository_readiness(self):
         with mock.patch.object(setup.provider, "prepare", side_effect=setup.provider.LaunchError("synthetic plan refusal")):

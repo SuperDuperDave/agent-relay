@@ -30,11 +30,14 @@ class LaunchError(Exception):
     pass
 
 
+def _hook_events(client):
+    return ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"] + (
+        ["Interrupt"] if client == "codex" else [])
+
+
 def check_native_arguments(client, command, arguments):
     """Accept only the invocation-only hook shape emitted by public schema 1."""
-    events = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"]
-    if client == "codex":
-        events.append("Interrupt")
+    events = _hook_events(client)
     expected = {name: [{"hooks": [{"type": "command", "command": command, "timeout": 3}]}]
                 for name in events}
     try:
@@ -133,6 +136,37 @@ def prepare(client, repo, relay, provider):
             "hook_delivery": "unknown", "provider_tools": "unknown"}
 
 
+def _display_text(value):
+    """Render local diagnostic data without terminal control characters."""
+    return "".join(character if character.isprintable() else
+                   json.dumps(character, ensure_ascii=True)[1:-1]
+                   for character in str(value))
+
+
+def _display_command(label, argv):
+    if all(argument.isprintable() for argument in argv):
+        print(label + ": " + shlex.join(argv))
+    else:
+        # Escaped shell text could silently name another file. Keep unusual
+        # arguments exact and explicitly represented as data instead.
+        print(label + " (JSON argv): " + json.dumps(argv, ensure_ascii=True))
+
+
+def _display_launch(plan):
+    print("Multithread launch review")
+    print("Provider: " + _display_text(plan["provider"]))
+    print("Executable: " + _display_text(plan["argv"][0]))
+    print("Checkout: " + _display_text(plan["repo"]))
+    # prepare validated these exact hooks in the native arguments; display
+    # their enforced shape, not optional descriptive fields in the plan.
+    print("Invocation hooks: " + ", ".join(_hook_events(plan["provider"])))
+    print("Each hook runs the following command with a 3-second timeout:")
+    _display_command("Hook command", shlex.split(plan["relay_plan"]["hook_command"]))
+    print("Hook delivery and provider tools: unknown until observed in the native session.")
+    print("Existing provider settings and permissions remain in effect. Native hook trust is a separate step.")
+    print("Use launch --json with the same options to inspect the complete invocation plan without starting a provider.")
+
+
 def launch_main(argv=None):
     parser = argparse.ArgumentParser(prog="multithread launch", description="Review invocation-only Multithread hooks and start an interactive provider.")
     parser.add_argument("client", choices=("codex", "claude"))
@@ -146,9 +180,7 @@ def launch_main(argv=None):
         if args.json:
             print(json.dumps(plan, sort_keys=True))
             return 0
-        print(json.dumps(plan, indent=2))
-        print("Review the provider path, checkout and Multithread hook command above.")
-        print("Existing provider settings and permissions remain in effect. Native hook trust is a separate step.")
+        _display_launch(plan)
         if not sys.stdin.isatty():
             raise LaunchError("Use --json to prepare a plan here, or run this command in an interactive terminal to launch.")
         if input("Type launch to start this provider: ").strip() != "launch":
@@ -163,7 +195,7 @@ def launch_main(argv=None):
             print(json.dumps({"schema": 1, "state": "unavailable", "provider_started": False,
                               "hook_delivery": "unknown", "provider_tools": "unknown", "message": message}))
         else:
-            print(f"multithread launch: {message}", file=sys.stderr)
+            print("multithread launch: " + _display_text(message), file=sys.stderr)
         return 1
     except (KeyboardInterrupt, EOFError):
         print("multithread launch: interrupted; inspect the provider if it had already started.", file=sys.stderr)

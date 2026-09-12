@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import pwd
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -207,37 +206,44 @@ def setup_report(repo, *, apply=False, codex=None, claude=None):
 
 
 def _display(report):
+    text = provider._display_text
     print("Multithread is ready for this repository." if report["state"] == "ready" else "Multithread setup needs attention.")
-    print("Runtime: " + report["runtime"]["state"])
-    print("Repository: " + report["repository"]["state"])
+    print("Runtime: " + text(report["runtime"]["state"]))
+    print("Repository: " + text(report["repository"]["state"]))
     if report["runtime"]["state"] == "verified":
-        print("Release: " + report["runtime"]["data"]["activation"]["release_id"])
+        activation = report["runtime"]["data"]["activation"]
+        version = activation.get("version")
+        print("Version: " + (text(version) if isinstance(version, str) and version else "not reported"))
+        print("Release: " + text(activation["release_id"]))
     if report["repo"]:
-        print("Checkout: " + report["repo"])
+        print("Checkout: " + text(report["repo"]))
     identity = report["repository"].get("identity")
     if identity:
-        print("Git common directory: " + identity["git_common_dir"])
+        print("Git common directory: " + text(identity["git_common_dir"]))
     for client, entry in report["providers"].items():
-        print(client + ": " + entry["state"])
+        summary = text(client) + ": " + text(entry["state"])
+        if isinstance(entry.get("message"), str) and entry["message"]:
+            summary += "; " + text(entry["message"])
+        print(summary)
     print("Provider sign-in, hook delivery and tool execution: not checked.")
-    print(report["path_note"])
+    print(text(report["path_note"]))
     if report["launcher"]:
-        print("Launcher: " + report["launcher"])
+        print("Launcher: " + text(report["launcher"]))
     if report.get("first_collaboration_url"):
         print("First collaboration, when you authorize provider use: "
-              + report["first_collaboration_url"])
+              + text(report["first_collaboration_url"]))
     for entry in report["next_actions"]:
-        print(entry["stage"] + ": " + entry["action"])
+        print(text(entry["stage"]) + ": " + text(entry["action"]))
         if "command" in entry:
-            print("  " + shlex.join(entry["command"]))
+            provider._display_command("  Command", entry["command"])
     observations = [report["runtime"], *(report["repository"].get(key, {}) for key in ("enrollment", "doctor", "status"))]
     for entry in observations:
         if entry.get("state") in {"verified", "not_checked", "not_requested", None}:
             continue
         if entry.get("message"):
-            print(entry["message"])
+            print(text(entry["message"]))
         if entry.get("stderr"):
-            print("Diagnostic: " + entry["stderr"].rstrip())
+            print("Diagnostic: " + text(entry["stderr"].rstrip()))
         if entry.get("stderr_truncated") or entry.get("stdout_truncated"):
             print("Diagnostic output was truncated; run the exact check above for details.")
 
