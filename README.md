@@ -19,7 +19,7 @@ acknowledgements available across interruptions.
 - Hand off an immutable Git commit and keep it pending until acknowledged.
 - Recover pending work after a restart; notifications and reads never consume it.
 
-This is a preview with [scoped native evidence](docs/PEER.md#coordination-and-verification-scope)
+This is a preview with [scoped native evidence](docs/PEER-REFERENCE.md#coordination-and-verification-scope)
 and [hosted checks](docs/CI.md) at their recorded revisions. These observations
 do not establish fresh-account onboarding or broader platform support.
 The commands below use the current published `multithread` entry point. See

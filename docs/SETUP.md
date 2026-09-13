@@ -183,7 +183,7 @@ completed review establish different things. If further work is warranted and
 authorized, [choose a fresh call or exact-session follow-up](PEER.md#follow-up-in-the-same-native-session):
 resume in the same checkout when prior investigation helps, or start fresh for
 independent judgment or a different scope. The peer guide includes a continuation
-packet and separately covers [input to a running call](PEER.md#update-a-running-peer).
+packet and separately covers [input to a running call](PEER-REFERENCE.md#update-a-running-peer).
 
 Calls use the existing provider's normal environment and permission mode.
 Subscription sign-in can be used; API keys or other provider configuration can
@@ -247,7 +247,7 @@ unchanged.
 
 Check the selected release's version and package results before installation.
 Capabilities and native observations have separate scopes: the
-[peer evidence](PEER.md#coordination-and-verification-scope) retains installed
+[peer evidence](PEER-REFERENCE.md#coordination-and-verification-scope) retains installed
 Claude v0.2 observations and the v0.3 source-entry observations, including
 interrupted calls and separately observed artifacts. They do not establish
 fresh-account onboarding or broader platform support. For management after

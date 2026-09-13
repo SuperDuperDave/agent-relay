@@ -52,7 +52,7 @@ access and reviewed permissions; the historical credential-free probes retain
 their narrower scope.
 
 The published v0.3.0 release includes Codex peer calls and live input. Its
-[source-entry observations and limitations](PEER.md#coordination-and-verification-scope)
+[source-entry observations and limitations](PEER-REFERENCE.md#coordination-and-verification-scope)
 use Codex 0.153.4 and Claude Code 2.1.269 on the existing developer profile.
 They include native artifacts from interrupted calls and do not establish
 installed-native v0.3 support. The earlier v0.2.0 release retains its
@@ -60,7 +60,7 @@ separate installed Claude call/return and exact-session resume evidence.
 
 An ordinary installed v0.4.0 development review with Claude Code 2.1.269 also
 returned a review artifact, acknowledged its exact handoff and consumed a live
-input. Its [scope and measurements](PEER.md#coordination-and-verification-scope)
+input. Its [scope and measurements](PEER-REFERENCE.md#coordination-and-verification-scope)
 do not establish native v0.4.1 execution or independent onboarding.
 
 ## Diagnose without changing live configuration
@@ -97,7 +97,7 @@ status requires an [enrolled repository](SETUP.md#check-readiness-or-enroll-anot
 | Unknown multithread/relay command, changed selector or uncertain install | Preserve existing files and inspect using a separately reviewed bootstrap. Use fresh exact observations, not deletion or blind retry. |
 | Provider login or hook-trust failure | This is distinct from SSH connectivity and ledger installation. The no-account tests cannot establish provider authentication or trusted hook execution. |
 | Peer input accepted or consumed, but the call needs attention | Input receipts and task completion are separate. Inspect the call result, retained native observations and actual artifacts before a deliberate follow-up; see [peer results](PEER.md#read-the-result-before-continuing). |
-| Streaming stdout limit exceeded | Streaming calls retain only a bounded prefix, close native input and clean up their owned process. A previously observed answer can survive with `needs_attention`; later output is unavailable. See [capture limits](PEER.md#read-the-result-before-continuing). |
+| Streaming stdout limit exceeded | Streaming calls retain only a bounded prefix, close native input and clean up their owned process. A previously observed answer can survive with `needs_attention`; later output is unavailable. See [capture limits](PEER-REFERENCE.md#receipt-fields-and-capture-limits). |
 
 For a damaged launcher, follow [installation recovery](engineering/INSTALLATION.md).
 If you own an unrelated command occupying the `multithread` path, deliberately
@@ -110,7 +110,7 @@ or bootstrap is available, preserve the evidence and stop modifying the install.
 ## Useful, safe support information
 
 For a retained peer call, start with the
-[read-only support report](PEER.md#prepare-a-support-report-from-an-existing-call):
+[read-only support report](PEER-REFERENCE.md#prepare-a-support-report-from-an-existing-call):
 
 ```sh
 ~/.local/bin/multithread peer report --call-dir /absolute/peer-call --json
