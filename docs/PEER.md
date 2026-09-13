@@ -200,6 +200,49 @@ when available. `estimated_cost_usd` is a provider estimate, not an observed
 subscription charge. Missing measurements remain unknown. These measurements
 do not establish net token savings or broad reliability.
 
+## Prepare a support report from an existing call
+
+When a call needs investigation, use its retained directory:
+
+```sh
+~/.local/bin/multithread peer report --call-dir /absolute/peer-call --json
+```
+
+Available from v0.4.3. Omit `--json` for a short human summary. This read-only
+command prints selected diagnostics from the private `result.json` receipt.
+It requires no provider, repository enrollment or network access and does not
+change the call. It never opens task, request, raw stdout/stderr or input-mailbox
+files. The result receipt itself can contain private answers and diagnostics;
+the report uses a positive, typed selection rather than trying to redact text.
+
+The output excludes task/answer text, arbitrary native diagnostics, paths,
+session/tool identifiers, hashes, model settings and usage maps. It includes the
+recorded call outcome, process exit, attention flag, elapsed time, available
+provider turn/duration/cost estimates, counts of retained errors/denials and
+stdout observation limits. Missing measurements are JSON `null`, not zero.
+Counts refer to the retained lists, which may already be bounded. Known recorded
+scope labels distinguish the latest related native result from cumulative cost
+through the latest native result, including background results. Other scopes
+remain `unknown`; do not treat those measurements as whole-call totals or sum
+cumulative values. No cost estimate establishes actual billing.
+
+`report_state: reported` and exit 0 mean a report was produced, even when
+`call.state` is `uncertain` or `provider_error`. Otherwise exit 1 and
+`receipt_status` distinguish missing, unavailable, malformed, unsupported-schema
+and oversized receipts. No call outcome is inferred when reporting is unavailable.
+An absent receipt does not establish whether a provider is running or finished.
+The independent receipt-read limit is 16 MiB; JSON expansion can make a valid
+receipt larger than this. Preserve such evidence for deliberate local inspection.
+
+The report describes recorded observations. It does not re-read current stdout,
+verify native identity, check hooks/tools or ledger state, diagnose the cause,
+or certify workflow completion. Older receipts may have no stdout observation
+or scope; these remain unknown. The call-time Multithread version is unrecorded;
+some native receipts include a provider version, but this report excludes native
+strings and does not infer versions from the current installation. Supply known
+versions separately and review the report
+before sharing through the [support route](SUPPORT.md#useful-safe-support-information).
+
 ## Follow up in the same native session
 
 After assessing the previous result, choose whether further provider usage is

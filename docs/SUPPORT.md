@@ -108,6 +108,17 @@ or bootstrap is available, preserve the evidence and stop modifying the install.
 
 ## Useful, safe support information
 
+For a retained peer call, start with the
+[read-only support report](PEER.md#prepare-a-support-report-from-an-existing-call):
+
+```sh
+~/.local/bin/multithread peer report --call-dir /absolute/peer-call --json
+```
+
+Review this selected diagnostic summary before sharing it. Reporting a call
+does not run it again or establish that it succeeded. A missing final receipt
+leaves the call outcome unknown. Keep the original private evidence intact.
+
 Share the command name, exit category, platform/architecture, relevant dependency
 versions, test counts and sanitized JSON outcome. Identify the reviewed commit
 and whether the issue is install, enrollment, test environment or provider trust.

@@ -70,6 +70,7 @@
     "tests/runtime/test_package_release.py",
     "tests/runtime/test_peer.py",
     "tests/runtime/test_peer_output.py",
+    "tests/runtime/test_peer_report.py",
     "tests/runtime/test_codex_protocol.py",
     "tests/runtime/test_codex_cleanup.py",
     "tests/runtime/test_claude_protocol.py",

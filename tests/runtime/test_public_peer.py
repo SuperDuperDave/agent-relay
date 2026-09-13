@@ -220,6 +220,25 @@ assert call(base + ["doctor"])["ok"]
 assert snapshot(settings) == before_settings and snapshot(foreign) == before_foreign
 assert snapshot(project / ".git/hooks") == before_hooks
 assert snapshot(home / ".local/share/relay/enrollments") == before_registry
+# Reporting needs neither a provider executable nor an enrolled current directory.
+# The source and bundle are already absent in this installed-runtime witness.
+provider.unlink()
+report_before = snapshot(evidence)
+report_run = subprocess.run([str(launcher), "peer", "report", "--call-dir", str(evidence), "--json"],
+                            cwd="/tmp", capture_output=True, text=True, timeout=15)
+assert report_run.returncode == 0 and not report_run.stderr, report_run
+report = json.loads(report_run.stdout)
+assert report["report_state"] == "reported" and report["receipt_status"] == "available"
+assert report["call"]["state"] == "returned" and report["call"]["provider"] == "claude"
+assert report["call"]["workflow_completion"] == "not_checked"
+serialized = json.dumps(report)
+assert peer["session_id"] not in serialized and peer["result"] not in serialized
+assert str(evidence) not in serialized and str(project) not in serialized
+assert snapshot(evidence) == report_before
+assert pathlib.Path("/tmp/fake-native-calls.txt").read_text() == "called\n"
+assert call(base + ["events"]) == events
+assert snapshot(settings) == before_settings and snapshot(foreign) == before_foreign
+assert snapshot(home / ".local/share/relay/enrollments") == before_registry
 pathlib.Path('/tmp/fake-stream.py').write_text(stream_source)
 stream_provider = pathlib.Path('/tmp/fake-stream')
 stream_provider.write_text('#!/bin/sh\nexec /usr/bin/python3 -I -S -B /tmp/fake-stream.py "$@"\n')
