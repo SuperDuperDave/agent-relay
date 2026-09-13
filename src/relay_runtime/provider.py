@@ -10,6 +10,7 @@ import argparse
 from contextlib import contextmanager
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -445,10 +446,13 @@ def _interpret(directory, envelope):
 
 def peer_main(argv=None):
     raw = list(sys.argv[1:] if argv is None else argv)
+    if raw and raw[0] == "report":
+        return report_main(raw[1:])
     if raw and raw[0] == "control":
         from .peer_control import control_main
         return control_main(raw[1:])
-    parser = argparse.ArgumentParser(prog="multithread peer", description="Call a native provider and return its observed result to the initiating task.")
+    parser = argparse.ArgumentParser(prog="multithread peer", description="Call a native provider and return its observed result to the initiating task.",
+                                     epilog="For an existing call: multithread peer report --call-dir PATH [--json] produces a read-only support summary; peer control --help covers live input.")
     parser.add_argument("client", choices=("claude", "codex"))
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="enrolled peer checkout")
     parser.add_argument("--multithread", "--relay", dest="relay", type=Path, help="reviewed absolute installed launcher; --relay is a compatibility spelling")
@@ -664,6 +668,188 @@ def _run_peer(args, interruption):
     else:
         _display_peer(envelope)
     return code
+
+
+def _report_number(record, key, *, integer=False, minimum=0):
+    value = record.get(key)
+    if value is None:
+        return None
+    if (type(value) not in ((int,) if integer else (int, float))
+            or not math.isfinite(value) or value < minimum or value > 2**53 - 1):
+        raise ValueError()
+    return value
+
+
+def _report_count(record, key, item_type):
+    value = record.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, list) or any(not isinstance(item, item_type) for item in value):
+        raise ValueError()
+    return len(value)
+
+
+def _report_projection(record):
+    """Positive typed projection: never return arbitrary text or native objects."""
+    if (record.get("provider") not in ("claude", "codex")
+            or record.get("state") not in ("unavailable", "uncertain", "provider_error", "returned")
+            or type(record.get("provider_started")) is not bool
+            or type(record.get("needs_attention")) is not bool):
+        raise ValueError()
+    call = {key: record[key] for key in ("provider", "state", "provider_started", "needs_attention")}
+    call["elapsed_seconds"] = _report_number(record, "elapsed_seconds")
+    call["process_exit_code"] = _report_number(record, "process_exit_code", integer=True, minimum=-(2**31))
+    call["invalid_measurements"] = []
+    for key in ("provider_turns", "provider_duration_ms", "estimated_cost_usd"):
+        try:
+            call[key] = _report_number(record, key, integer=key == "provider_turns")
+        except (ValueError, OverflowError):
+            # Some native metrics are copied without validation into the original
+            # receipt. Preserve the call observation while identifying unusable
+            # auxiliary measurements; never copy their values or coerce them.
+            call[key] = None
+            call["invalid_measurements"].append(key)
+    call["provider_measurement_scope"] = (
+        "latest_related_native_result" if record.get("usage_scope") ==
+        "latest related native result; main loop only, not the whole call" else "unknown")
+    call["cost_scope"] = (
+        "cumulative_through_latest_native_result" if record.get("cost_scope") ==
+        "cumulative through the latest native result; an estimate, not billing" else "unknown")
+    call["actual_billed_cost"] = "unknown"
+    call["permission_denial_count"] = _report_count(record, "permission_denials", dict)
+    call["provider_error_count"] = _report_count(record, "provider_errors", str)
+    call["unsupported_native_request_count"] = _report_count(record, "unsupported_native_requests", str)
+    call["task_submission"] = (
+        "not_recorded" if "task_submission" not in record else record["task_submission"]
+        if record["task_submission"] in ("not_submitted", "requested", "accepted") else "unknown")
+    call["unavailable_stage"] = (record.get("unavailable_stage") if record.get("unavailable_stage") in
+                                  ("task_read", "relay_configuration", "evidence_setup", "provider_spawn",
+                                   "provider_call", "result_read") else "unknown")
+    identities = {key: record.get(key) for key in
+                  ("session_id", "requested_session_id", "observed_session_id")}
+    if any(value is not None and (not isinstance(value, str) or not value) for value in identities.values()):
+        raise ValueError()
+    call["session_identity"] = (
+        "mismatch_observed" if identities["observed_session_id"] else
+        "verified" if identities["session_id"] else
+        "requested_only" if identities["requested_session_id"] else "not_recorded")
+    observation = {"status": "not_recorded", "bytes": None, "truncated": None, "scope": "unknown"}
+    if "stdout_observation_error" in record:
+        if not isinstance(record["stdout_observation_error"], str) or not record["stdout_observation_error"]:
+            raise ValueError()
+        observation["status"] = "unavailable"
+    elif "stdout_observation" in record:
+        value = record["stdout_observation"]
+        if (not isinstance(value, dict) or type(value.get("bytes")) is not int
+                or type(value.get("truncated")) is not bool):
+            raise ValueError()
+        observation.update(status="recorded", bytes=_report_number(value, "bytes", integer=True),
+                           truncated=value["truncated"],
+                           scope="bounded_read" if value.get("scope") == "bounded_read" else "unknown")
+    call["stdout_observation"] = observation
+    fault = record.get("control_fault")
+    if "control_fault" in record and (not isinstance(fault, dict) or fault.get("state") != "unavailable"
+            or any(not isinstance(fault.get(key), str) or not fault[key] for key in ("operation", "detail"))):
+        raise ValueError()
+    call["faults"] = {"control": "reported" if "control_fault" in record else "not_recorded"}
+    for name, keys in (("recording", ("evidence_recording",)),
+                       ("cleanup", ("server_cleanup", "owned_process_cleanup", "stdout_completion"))):
+        present = [key for key in keys if key in record]
+        if any(not isinstance(record[key], str) or not record[key] for key in present):
+            raise ValueError()
+        call["faults"][name] = "reported" if present else "not_recorded"
+    # Reporting this receipt does not execute tools or inspect actual ledger state.
+    for key in ("hook_delivery", "provider_tools", "relay_acknowledgement", "workflow_completion"):
+        call[key] = "not_checked"
+    return call
+
+
+def _read_report(directory):
+    from .peer_control import ControlError, _directory, _object, _private
+    report = {"schema": 1, "kind": "peer_report", "report_state": "unavailable",
+              "receipt_status": "unavailable", "call": None}
+    try:
+        parent = _directory(directory)
+        try:
+            try:
+                fd = os.open("result.json", os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=parent)
+            except FileNotFoundError:
+                report["receipt_status"] = "missing"
+                return report
+        finally:
+            os.close(parent)
+        with os.fdopen(fd, "rb") as stream:
+            _private(os.fstat(stream.fileno()))
+            # This is an independent receipt-read bound, not the native capture
+            # bound. JSON expansion can make a valid receipt larger than this.
+            body = stream.read(_MAX_RESULT + 1)
+    except (OSError, ControlError):
+        return report
+    if len(body) > _MAX_RESULT:
+        report["receipt_status"] = "too_large"
+        return report
+    try:
+        def invalid_constant(value):
+            raise ValueError()
+        def finite_float(value):
+            number = float(value)
+            if not math.isfinite(number):
+                raise ValueError()
+            return number
+        record = json.loads(body.decode("utf-8"), object_pairs_hook=_object,
+                            parse_constant=invalid_constant, parse_float=finite_float)
+        if not isinstance(record, dict) or type(record.get("schema")) is not int:
+            raise ValueError()
+        if record["schema"] != 1:
+            report["receipt_status"] = "unsupported_schema"
+            return report
+        call = _report_projection(record)
+    except (ValueError, UnicodeError, RecursionError, OverflowError):
+        report["receipt_status"] = "malformed"
+        return report
+    report.update(report_state="reported", receipt_status="available", call=call)
+    return report
+
+
+def report_main(argv=None):
+    parser = argparse.ArgumentParser(prog="multithread peer report",
+        description="Summarize an existing private result receipt using only selected diagnostic fields. Reads result.json; no provider or ledger operation.")
+    parser.add_argument("--call-dir", required=True, type=Path, help="exact private directory retained by the peer call")
+    parser.add_argument("--repo", type=Path, help="accepted for the common command prefix; unused by this receipt-only report")
+    parser.add_argument("--json", action="store_true", help="print the structured support report; exit 0 means reported, not a successful call")
+    args = parser.parse_args(argv)
+    report = _read_report(args.call_dir)
+    if args.json:
+        print(json.dumps(report, ensure_ascii=True, sort_keys=True))
+    else:
+        print("Multithread peer report: " + report["report_state"])
+        print("Result receipt: " + report["receipt_status"])
+        call = report["call"]
+        if call is not None:
+            print(f"Recorded call: {call['provider']} / {call['state']}")
+            print("Recorded task submission: " + call["task_submission"])
+            print("Needs attention: " + ("yes" if call["needs_attention"] else "no"))
+            if call["unavailable_stage"] != "unknown":
+                print("Unavailable stage: " + call["unavailable_stage"])
+            for key, label in (("permission_denial_count", "Retained permission denials"),
+                               ("provider_error_count", "Retained provider errors"),
+                               ("unsupported_native_request_count", "Retained unsupported native requests")):
+                print(label + ": " + str(call[key] if call[key] is not None else "unknown"))
+            for key, value in call["faults"].items():
+                if value == "reported":
+                    print("Recorded " + key + " fault: reported")
+            if call["invalid_measurements"]:
+                print("Invalid recorded measurements (values omitted): " + ", ".join(call["invalid_measurements"]))
+            print("Process exit: " + str(call["process_exit_code"] if call["process_exit_code"] is not None else "unknown"))
+            print("Elapsed seconds: " + str(call["elapsed_seconds"] if call["elapsed_seconds"] is not None else "unknown"))
+            observation = call["stdout_observation"]
+            print("Stdout observation: " + observation["status"] + (
+                f"; {observation['bytes']} bytes; truncated={str(observation['truncated']).lower()}; scope={observation['scope']}"
+                if observation["status"] == "recorded" else "; byte count unknown"))
+            print("Recorded session identity: " + call["session_identity"] + " (identifiers omitted)")
+        print("Retained receipt only: provider activity, cause and workflow completion are not checked.")
+        print("Review before sharing. Task/answer text, paths, identities, hashes and native diagnostics are excluded.")
+    return 0 if report["report_state"] == "reported" else 1
 
 
 def _display_peer(envelope):

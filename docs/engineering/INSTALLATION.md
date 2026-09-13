@@ -7,7 +7,7 @@ or source-build route below. [Hosted checks](../CI.md#hosted-result) and the
 scope. Consult the [selected release](https://github.com/SuperDuperDave/agent-relay/releases) for final package
 and downloaded-package results.
 
-This guide accompanies the **v0.4.2 preview**. Use the archive route only
+This guide accompanies the **v0.4.3 preview**. Use the archive route only
 after the selected tag lists its reviewed assets; the local build route selects
 the reviewed source checkout. Building or installing a bundle does not establish
 a published release or a native-provider workflow result.
@@ -44,8 +44,8 @@ edits PATH/shell configuration, enrolls a repository or enables provider hooks.
 
 ## Install from the release archive
 
-Use this route when the [v0.4.2 release](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.4.2) lists both
-`relay-0.4.2-linux-x86_64.tar.gz` and its `.sha256` file under Assets.
+Use this route when the [v0.4.3 release](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.4.3) lists both
+`relay-0.4.3-linux-x86_64.tar.gz` and its `.sha256` file under Assets.
 Source publication and green CI alone do not establish a downloaded-package
 check; read the release's package and onboarding results first.
 
@@ -54,18 +54,18 @@ Download both files into a new empty directory. For example, with curl installed
 ```sh
 mkdir multithread-download
 cd multithread-download
-curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.4.2/relay-0.4.2-linux-x86_64.tar.gz
-curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.4.2/relay-0.4.2-linux-x86_64.tar.gz.sha256
-sha256sum --check relay-0.4.2-linux-x86_64.tar.gz.sha256
-tar -tvzf relay-0.4.2-linux-x86_64.tar.gz
+curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.4.3/relay-0.4.3-linux-x86_64.tar.gz
+curl --fail --location --remote-name https://github.com/SuperDuperDave/agent-relay/releases/download/v0.4.3/relay-0.4.3-linux-x86_64.tar.gz.sha256
+sha256sum --check relay-0.4.3-linux-x86_64.tar.gz.sha256
+tar -tvzf relay-0.4.3-linux-x86_64.tar.gz
 ```
 
-Review the listed files under the single `relay-0.4.2/` root, then extract and
+Review the listed files under the single `relay-0.4.3/` root, then extract and
 check the individual file hashes:
 
 ```sh
-tar -xzf relay-0.4.2-linux-x86_64.tar.gz
-cd relay-0.4.2
+tar -xzf relay-0.4.3-linux-x86_64.tar.gz
+cd relay-0.4.3
 sha256sum --check SHA256SUMS
 ```
 
@@ -99,7 +99,7 @@ From a reviewed source checkout:
 
 ```sh
 /usr/bin/python3 -I -S -B src/relay_bootstrap.py build-release \
-  --output dist/multithread-preview --version 0.4.2
+  --output dist/multithread-preview --version 0.4.3
 ```
 
 The destination must not already exist. The builder includes only bootstrap.py,
