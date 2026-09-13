@@ -239,6 +239,7 @@ assert pathlib.Path("/tmp/fake-native-calls.txt").read_text() == "called\n"
 assert call(base + ["events"]) == events
 assert snapshot(settings) == before_settings and snapshot(foreign) == before_foreign
 assert snapshot(home / ".local/share/relay/enrollments") == before_registry
+assert call(base + ["peer", "report", "--call-dir", str(evidence)]) == report
 pathlib.Path('/tmp/fake-stream.py').write_text(stream_source)
 stream_provider = pathlib.Path('/tmp/fake-stream')
 stream_provider.write_text('#!/bin/sh\nexec /usr/bin/python3 -I -S -B /tmp/fake-stream.py "$@"\n')
@@ -253,6 +254,15 @@ for client in ('codex', 'claude'):
     answer = json.loads(result.stdout)
     assert answer['state'] == 'returned' and answer['needs_attention'] is False, answer
     assert answer['workflow_completion'] == answer['relay_acknowledgement'] == 'not_checked'
+    # Bind the report to actual driver output, including its measurement labels.
+    support = call(base + ['peer', 'report', '--call-dir', str(directory)])['call']
+    assert support['state'] == 'returned' and support['stdout_observation']['scope'] == 'unknown'
+    if client == 'claude':
+        assert support['provider_measurement_scope'] == 'latest_related_native_result'
+        assert support['cost_scope'] == 'cumulative_through_latest_native_result'
+        assert support['task_submission'] == 'not_recorded'
+    else:
+        assert support['task_submission'] == 'accepted'
     target = call([str(launcher), 'peer', 'control', 'status', '--call-dir', str(directory), '--json'])
     assert target['state'] == 'closed' and target['target']['session_id'] == answer['session_id']
     assert target['input_mode'] == ('active_turn' if client == 'codex' else 'session')

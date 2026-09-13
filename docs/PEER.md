@@ -210,6 +210,7 @@ When a call needs investigation, use its retained directory:
 
 Available from v0.4.3. Omit `--json` for a short human summary. This read-only
 command prints selected diagnostics from the private `result.json` receipt.
+The usual global `--repo` prefix is accepted but unused by this command.
 It requires no provider, repository enrollment or network access and does not
 change the call. It never opens task, request, raw stdout/stderr or input-mailbox
 files. The result receipt itself can contain private answers and diagnostics;
@@ -217,9 +218,15 @@ the report uses a positive, typed selection rather than trying to redact text.
 
 The output excludes task/answer text, arbitrary native diagnostics, paths,
 session/tool identifiers, hashes, model settings and usage maps. It includes the
-recorded call outcome, process exit, attention flag, elapsed time, available
-provider turn/duration/cost estimates, counts of retained errors/denials and
-stdout observation limits. Missing measurements are JSON `null`, not zero.
+recorded call outcome, task-submission observation, process exit, attention flag,
+elapsed time, available provider turn/duration/cost estimates, counts of retained
+errors/denials/unsupported native requests and stdout observation limits.
+Starting a provider does not establish task submission. Codex records whether
+submission was requested or accepted; an absent observation remains `not_recorded`.
+Missing measurements are JSON `null`, not zero. Invalid auxiliary provider
+metrics also become `null` and are named in `invalid_measurements`; the known
+call outcome remains available. Invalid JSON or required call fields still
+prevent reporting rather than producing a guessed outcome.
 Counts refer to the retained lists, which may already be bounded. Known recorded
 scope labels distinguish the latest related native result from cumulative cost
 through the latest native result, including background results. Other scopes
@@ -236,8 +243,10 @@ receipt larger than this. Preserve such evidence for deliberate local inspection
 
 The report describes recorded observations. It does not re-read current stdout,
 verify native identity, check hooks/tools or ledger state, diagnose the cause,
-or certify workflow completion. Older receipts may have no stdout observation
-or scope; these remain unknown. The call-time Multithread version is unrecorded;
+or certify workflow completion. Receipts without an explicit stdout observation
+or scope retain that uncertainty, including current streaming receipts whose
+capture scope is not recorded. A streaming capture is not labeled as a bounded
+read of a potentially larger retained file. The call-time Multithread version is unrecorded;
 some native receipts include a provider version, but this report excludes native
 strings and does not infer versions from the current installation. Supply known
 versions separately and review the report

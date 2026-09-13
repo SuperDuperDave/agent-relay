@@ -26,6 +26,7 @@ CALL_FIELDS = {
     "actual_billed_cost", "permission_denial_count", "provider_error_count",
     "session_identity", "stdout_observation", "faults", "unavailable_stage",
     "provider_measurement_scope", "cost_scope",
+    "task_submission", "unsupported_native_request_count", "invalid_measurements",
     "hook_delivery", "provider_tools", "relay_acknowledgement", "workflow_completion",
 }
 UNCHECKED = ("hook_delivery", "provider_tools", "relay_acknowledgement", "workflow_completion")
@@ -68,11 +69,13 @@ class PeerReportTests(unittest.TestCase):
                 os.readlink(path) if stat.S_ISLNK(info.st_mode) else None)
         return observed
 
-    def invoke(self, *, directory=None, structured=True):
+    def invoke(self, *, directory=None, structured=True, repo=None):
         """Guard the public command boundary, independently of report helpers."""
         arguments = ["report", "--call-dir", str(directory or self.directory)]
         if structured:
             arguments.append("--json")
+        if repo is not None:
+            arguments.extend(("--repo", str(repo)))
         before = self.snapshot()
         output, errors = io.StringIO(), io.StringIO()
         native_open, builtin_open, io_open = os.open, builtins.open, io.open
@@ -150,12 +153,15 @@ class PeerReportTests(unittest.TestCase):
         self.assertTrue(call["provider_started"])
         self.assertFalse(call["needs_attention"])
         for key in ("elapsed_seconds", "process_exit_code", "provider_turns", "provider_duration_ms",
-                    "estimated_cost_usd", "permission_denial_count", "provider_error_count"):
+                    "estimated_cost_usd", "permission_denial_count", "provider_error_count",
+                    "unsupported_native_request_count"):
             self.assertIsNone(call[key], key)
         self.assertEqual("unknown", call["actual_billed_cost"])
         self.assertEqual("unknown", call["provider_measurement_scope"])
         self.assertEqual("unknown", call["cost_scope"])
         self.assertEqual("not_recorded", call["session_identity"])
+        self.assertEqual("not_recorded", call["task_submission"])
+        self.assertEqual([], call["invalid_measurements"])
         self.assertEqual({"status": "not_recorded", "bytes": None, "truncated": None,
                           "scope": "unknown"}, call["stdout_observation"])
         self.assertEqual(dict.fromkeys(("control", "recording", "cleanup"), "not_recorded"), call["faults"])
@@ -174,13 +180,18 @@ class PeerReportTests(unittest.TestCase):
     def test_recorded_zeros_are_distinct_from_missing_and_null_metrics(self):
         metrics = ("elapsed_seconds", "process_exit_code", "provider_turns", "provider_duration_ms",
                    "estimated_cost_usd")
-        call = self.reported(**dict.fromkeys(metrics, 0), permission_denials=[], provider_errors=[])
-        for key in (*metrics, "permission_denial_count", "provider_error_count"):
+        counts = ("permission_denial_count", "provider_error_count", "unsupported_native_request_count")
+        call = self.reported(**dict.fromkeys(metrics, 0), permission_denials=[], provider_errors=[],
+                             unsupported_native_requests=[])
+        for key in (*metrics, *counts):
             self.assertEqual(0, call[key], key)
             self.assertIsNotNone(call[key], key)
-        call = self.reported(**dict.fromkeys(metrics, None), permission_denials=None, provider_errors=None)
-        for key in (*metrics, "permission_denial_count", "provider_error_count"):
+        self.assertEqual([], call["invalid_measurements"])
+        call = self.reported(**dict.fromkeys(metrics, None), permission_denials=None, provider_errors=None,
+                             unsupported_native_requests=None)
+        for key in (*metrics, *counts):
             self.assertIsNone(call[key], key)
+        self.assertEqual([], call["invalid_measurements"])
 
     def test_valid_metrics_preserve_estimates_and_process_signals(self):
         call = self.reported(elapsed_seconds=3.25, process_exit_code=-15, provider_turns=2,
@@ -191,6 +202,7 @@ class PeerReportTests(unittest.TestCase):
                            ("estimated_cost_usd", 0.0125)):
             self.assertEqual(value, call[key])
         self.assertEqual("unknown", call["actual_billed_cost"])
+        self.assertEqual([], call["invalid_measurements"])
 
     def test_private_native_data_are_absent_from_both_report_formats(self):
         private = {
@@ -206,6 +218,8 @@ class PeerReportTests(unittest.TestCase):
             "model": CANARY + "-model", "actual_billed_cost": CANARY + "-billing",
             "permission_denials": [{"tool_name": CANARY + "-tool", "tool_use_id": CANARY + "-tool-id"}],
             "provider_errors": [CANARY + "-first-error", CANARY + "-second-error"],
+            "unsupported_native_requests": [CANARY + "-native-method"],
+            "task_submission": CANARY + "-submission",
             "provider_errors_truncated": True,
             "stdout_observation": {"bytes": 23, "truncated": True, "scope": CANARY + "-scope",
                                    "sha256": CANARY + "-output-digest", "raw": CANARY + "-raw"},
@@ -219,6 +233,8 @@ class PeerReportTests(unittest.TestCase):
         call = self.reported(needs_attention=True, **private)
         self.assertEqual(1, call["permission_denial_count"])
         self.assertEqual(2, call["provider_error_count"])
+        self.assertEqual(1, call["unsupported_native_request_count"])
+        self.assertEqual("unknown", call["task_submission"])
         self.assertEqual("unknown", call["unavailable_stage"])
         self.assertEqual("unknown", call["provider_measurement_scope"])
         self.assertEqual("unknown", call["cost_scope"])
@@ -252,6 +268,98 @@ class PeerReportTests(unittest.TestCase):
         self.assertEqual("cumulative_through_latest_native_result", call["cost_scope"])
         self.assertEqual("unknown", call["actual_billed_cost"])
 
+    def test_recorded_task_submission_is_distinct_from_provider_start_or_completion(self):
+        for submission in ("not_submitted", "requested", "accepted"):
+            with self.subTest(submission=submission):
+                call = self.reported(state="uncertain", needs_attention=True,
+                                     task_submission=submission)
+                self.assertTrue(call["provider_started"])
+                self.assertEqual("uncertain", call["state"])
+                self.assertEqual(submission, call["task_submission"])
+                self.assertEqual("not_checked", call["workflow_completion"])
+        for submission in (CANARY, None, False, [], {}):
+            with self.subTest(unknown_submission=submission):
+                self.assertEqual("unknown", self.reported(task_submission=submission)["task_submission"])
+
+    def test_repo_selector_is_accepted_without_enrollment_or_provider_access(self):
+        self.write(self.receipt())
+        code, ordinary = self.invoke()
+        self.assertEqual(0, code)
+        code, selected = self.invoke(repo=self.base / (CANARY + "-nonexistent-repository"))
+        self.assertEqual(0, code, selected)
+        self.assertEqual(ordinary, selected)
+
+    def test_invalid_auxiliary_measurements_preserve_core_outcome_and_other_measurements(self):
+        measurements = {"provider_turns": 2, "provider_duration_ms": 1250.5,
+                        "estimated_cost_usd": 0.0125}
+        for field in measurements:
+            invalid = [-1, False, CANARY, {}, 10**400]
+            if field == "provider_turns":
+                invalid.append(1.5)
+            for value in invalid:
+                with self.subTest(field=field, value=value):
+                    call = self.reported(**{**measurements, field: value})
+                    self.assertEqual("returned", call["state"])
+                    self.assertTrue(call["provider_started"])
+                    self.assertFalse(call["needs_attention"])
+                    self.assertIsNone(call[field])
+                    self.assertEqual([field], call["invalid_measurements"])
+                    for other in measurements.keys() - {field}:
+                        self.assertEqual(measurements[other], call[other])
+        for state in ("returned", "uncertain", "provider_error", "unavailable"):
+            with self.subTest(state=state):
+                call = self.reported(state=state, needs_attention=state != "returned",
+                    provider_started=state != "unavailable", **dict.fromkeys(measurements, CANARY))
+                self.assertEqual(state, call["state"])
+                self.assertEqual(state != "returned", call["needs_attention"])
+                self.assertEqual(state != "unavailable", call["provider_started"])
+                self.assertEqual(set(measurements), set(call["invalid_measurements"]))
+                self.assertEqual(3, len(call["invalid_measurements"]))
+                for field in measurements:
+                    self.assertIsNone(call[field])
+
+    def test_human_report_exposes_recorded_submission_counts_faults_and_invalid_measurements(self):
+        self.write(self.receipt(
+            state="uncertain", needs_attention=True, task_submission="accepted",
+            unavailable_stage="provider_call", requested_session_id=CANARY,
+            permission_denials=[{"tool_name": CANARY}, {"tool_name": CANARY}],
+            provider_errors=[], unsupported_native_requests=[CANARY],
+            control_fault={"state": "unavailable", "operation": CANARY, "detail": CANARY},
+            evidence_recording=CANARY, owned_process_cleanup=CANARY,
+            provider_turns=CANARY, provider_duration_ms=CANARY, estimated_cost_usd=CANARY))
+        code, output = self.invoke(structured=False)
+        self.assertEqual(0, code)
+        for line in (
+            "Recorded call: claude / uncertain",
+            "Recorded task submission: accepted",
+            "Unavailable stage: provider_call",
+            "Retained permission denials: 2",
+            "Retained provider errors: 0",
+            "Retained unsupported native requests: 1",
+            "Recorded control fault: reported",
+            "Recorded recording fault: reported",
+            "Recorded cleanup fault: reported",
+            "Recorded session identity: requested_only (identifiers omitted)",
+        ):
+            self.assertIn(line, output)
+        measurement_line = next(line for line in output.splitlines()
+                                if line.startswith("Invalid recorded measurements"))
+        self.assertIn("values omitted", measurement_line)
+        for field in ("provider_turns", "provider_duration_ms", "estimated_cost_usd"):
+            self.assertIn(field, measurement_line)
+
+    def test_human_report_keeps_unknown_counts_and_submission_explicit(self):
+        self.write(self.receipt(session_id=CANARY))
+        code, output = self.invoke(structured=False)
+        self.assertEqual(0, code)
+        self.assertIn("Recorded task submission: not_recorded", output)
+        self.assertIn("Recorded session identity: verified (identifiers omitted)", output)
+        for label in ("permission denials", "provider errors", "unsupported native requests"):
+            self.assertIn("Retained " + label + ": unknown", output)
+        self.assertNotIn("fault: reported", output)
+        self.assertNotIn("Invalid recorded measurements", output)
+        self.assertNotIn("Unavailable stage:", output)
+
     def test_session_identity_reports_attribution_without_exposing_identifiers(self):
         cases = (
             ({}, "not_recorded"),
@@ -273,6 +381,18 @@ class PeerReportTests(unittest.TestCase):
                 self.assertEqual({"status": "recorded", "bytes": count, "truncated": truncated,
                                   "scope": "bounded_read"}, call["stdout_observation"])
                 self.assertEqual("uncertain", call["state"])
+
+    def test_stream_observation_without_scope_does_not_become_a_bounded_read(self):
+        for truncated in (False, True):
+            with self.subTest(truncated=truncated):
+                call = self.reported(provider="codex", state="uncertain", needs_attention=True,
+                    stdout_observation={"bytes": 81, "truncated": truncated, "sha256": CANARY})
+                self.assertEqual({"status": "recorded", "bytes": 81, "truncated": truncated,
+                                  "scope": "unknown"}, call["stdout_observation"])
+                code, output = self.invoke(structured=False)
+                self.assertEqual(0, code)
+                self.assertIn("scope=unknown", output)
+                self.assertNotIn("bounded_read", output)
 
     def test_stdout_read_error_supersedes_a_count_without_claiming_empty_output(self):
         call = self.reported(state="uncertain", needs_attention=True,
@@ -330,11 +450,9 @@ class PeerReportTests(unittest.TestCase):
         changes = [
             {"process_exit_code": True}, {"process_exit_code": "0"}, {"process_exit_code": 0.5},
             {"elapsed_seconds": -0.1}, {"elapsed_seconds": True}, {"elapsed_seconds": "2"},
-            {"provider_turns": -1}, {"provider_turns": 1.5}, {"provider_turns": False},
-            {"provider_duration_ms": -1}, {"provider_duration_ms": "3"},
-            {"estimated_cost_usd": -0.01}, {"estimated_cost_usd": True},
             {"permission_denials": {}}, {"permission_denials": [CANARY]},
             {"provider_errors": CANARY}, {"provider_errors": [{"error": CANARY}]},
+            {"unsupported_native_requests": CANARY}, {"unsupported_native_requests": [1]},
             {"session_id": []}, {"requested_session_id": False}, {"observed_session_id": 1},
             {"stdout_observation": []},
             {"control_fault": CANARY}, {"control_fault": {}},
@@ -363,6 +481,8 @@ class PeerReportTests(unittest.TestCase):
         prefix = json.dumps(self.receipt())[:-1].encode("ascii")
         for suffix in (b', "schema":1}', b', "private":{"duplicate":1,"duplicate":2}}',
                        b', "elapsed_seconds":NaN}', b', "private":Infinity}',
+                       b', "provider_turns":NaN}', b', "provider_duration_ms":Infinity}',
+                       b', "estimated_cost_usd":-Infinity}',
                        b', "private":-Infinity}', b', "private":{"value":1e400}}'):
             with self.subTest(suffix=suffix):
                 self.write_bytes(prefix + suffix)

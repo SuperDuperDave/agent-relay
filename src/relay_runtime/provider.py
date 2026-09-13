@@ -697,10 +697,18 @@ def _report_projection(record):
             or type(record.get("needs_attention")) is not bool):
         raise ValueError()
     call = {key: record[key] for key in ("provider", "state", "provider_started", "needs_attention")}
-    call.update({key: _report_number(record, key) for key in
-                 ("elapsed_seconds", "provider_duration_ms", "estimated_cost_usd")})
+    call["elapsed_seconds"] = _report_number(record, "elapsed_seconds")
     call["process_exit_code"] = _report_number(record, "process_exit_code", integer=True, minimum=-(2**31))
-    call["provider_turns"] = _report_number(record, "provider_turns", integer=True)
+    call["invalid_measurements"] = []
+    for key in ("provider_turns", "provider_duration_ms", "estimated_cost_usd"):
+        try:
+            call[key] = _report_number(record, key, integer=key == "provider_turns")
+        except (ValueError, OverflowError):
+            # Some native metrics are copied without validation into the original
+            # receipt. Preserve the call observation while identifying unusable
+            # auxiliary measurements; never copy their values or coerce them.
+            call[key] = None
+            call["invalid_measurements"].append(key)
     call["provider_measurement_scope"] = (
         "latest_related_native_result" if record.get("usage_scope") ==
         "latest related native result; main loop only, not the whole call" else "unknown")
@@ -710,6 +718,10 @@ def _report_projection(record):
     call["actual_billed_cost"] = "unknown"
     call["permission_denial_count"] = _report_count(record, "permission_denials", dict)
     call["provider_error_count"] = _report_count(record, "provider_errors", str)
+    call["unsupported_native_request_count"] = _report_count(record, "unsupported_native_requests", str)
+    call["task_submission"] = (
+        "not_recorded" if "task_submission" not in record else record["task_submission"]
+        if record["task_submission"] in ("not_submitted", "requested", "accepted") else "unknown")
     call["unavailable_stage"] = (record.get("unavailable_stage") if record.get("unavailable_stage") in
                                   ("task_read", "relay_configuration", "evidence_setup", "provider_spawn",
                                    "provider_call", "result_read") else "unknown")
@@ -803,6 +815,7 @@ def report_main(argv=None):
     parser = argparse.ArgumentParser(prog="multithread peer report",
         description="Summarize an existing private result receipt using only selected diagnostic fields. Reads result.json; no provider or ledger operation.")
     parser.add_argument("--call-dir", required=True, type=Path, help="exact private directory retained by the peer call")
+    parser.add_argument("--repo", type=Path, help="accepted for the common command prefix; unused by this receipt-only report")
     parser.add_argument("--json", action="store_true", help="print the structured support report; exit 0 means reported, not a successful call")
     args = parser.parse_args(argv)
     report = _read_report(args.call_dir)
@@ -814,14 +827,26 @@ def report_main(argv=None):
         call = report["call"]
         if call is not None:
             print(f"Recorded call: {call['provider']} / {call['state']}")
+            print("Recorded task submission: " + call["task_submission"])
             print("Needs attention: " + ("yes" if call["needs_attention"] else "no"))
+            if call["unavailable_stage"] != "unknown":
+                print("Unavailable stage: " + call["unavailable_stage"])
+            for key, label in (("permission_denial_count", "Retained permission denials"),
+                               ("provider_error_count", "Retained provider errors"),
+                               ("unsupported_native_request_count", "Retained unsupported native requests")):
+                print(label + ": " + str(call[key] if call[key] is not None else "unknown"))
+            for key, value in call["faults"].items():
+                if value == "reported":
+                    print("Recorded " + key + " fault: reported")
+            if call["invalid_measurements"]:
+                print("Invalid recorded measurements (values omitted): " + ", ".join(call["invalid_measurements"]))
             print("Process exit: " + str(call["process_exit_code"] if call["process_exit_code"] is not None else "unknown"))
             print("Elapsed seconds: " + str(call["elapsed_seconds"] if call["elapsed_seconds"] is not None else "unknown"))
             observation = call["stdout_observation"]
             print("Stdout observation: " + observation["status"] + (
                 f"; {observation['bytes']} bytes; truncated={str(observation['truncated']).lower()}; scope={observation['scope']}"
                 if observation["status"] == "recorded" else "; byte count unknown"))
-            print("Session identity: " + call["session_identity"] + " (identifiers omitted)")
+            print("Recorded session identity: " + call["session_identity"] + " (identifiers omitted)")
         print("Retained receipt only: provider activity, cause and workflow completion are not checked.")
         print("Review before sharing. Task/answer text, paths, identities, hashes and native diagnostics are excluded.")
     return 0 if report["report_state"] == "reported" else 1
