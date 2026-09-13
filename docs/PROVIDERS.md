@@ -22,8 +22,8 @@ observations and repeated context. Invocation-only arguments provide opt-in
 without persistent provider-setting edits; native review remains separate.
 
 For a first installation, use the [setup guide](SETUP.md). Once the repository
-is enrolled, the installed interactive launch command
-provides the invocation example below without manual path/argument editing:
+is enrolled, the installed interactive launch command prepares the hooks and
+displays the invocation for review before starting the provider:
 
 ```sh
 ~/.local/bin/multithread launch codex --repo /absolute/enrolled/checkout
@@ -114,6 +114,11 @@ lifecycle guarantee.
 
 ## Invocation-only opt-in
 
+For ordinary interactive use, use `multithread launch` as shown above and in the
+[two-worktree walkthrough](#try-a-review-across-two-worktrees). The advanced
+`provider-config` interface below is for scripts that need to handle the native
+argument list directly.
+
 After explicitly installing Multithread and enrolling the checkout, generate a plan:
 
 ```text
@@ -127,7 +132,7 @@ settings, executable, permissions, trust record or provider process.
 
 The low-level schema-1 `provider-config` default keeps the `relay` hook entry so
 existing native helpers receive the exact hook arguments they already validate.
-Current native helpers and the manual examples here explicitly select
+Current native helpers and the advanced examples here explicitly select
 `--launcher-name multithread`. This option chooses only the installed account's
 `multithread` or `relay` entry; it cannot name an arbitrary executable. Use
 `multithread` for new scripts and instructions; see the
@@ -140,11 +145,11 @@ list through a process API; do not feed JSON to shell `eval`. The generated hook
 command already shell-quotes each argument. Codex receives repeated `-c` TOML
 overrides; Claude receives `--settings` and an inline JSON string, not a filename.
 
-For an interactive session, the following Python example generates the plan,
-shows it for review, and launches the provider after you type `launch`. Replace
-the two absolute paths with your enrolled checkout and installed provider
-executable. Set `client` to `claude` and select its executable for Claude Code.
-The example uses your existing provider sign-in and normal permissions.
+The following advanced Python example generates the plan, shows it for review,
+and launches an interactive provider after you type `launch`. Replace the two
+absolute paths with your enrolled checkout and installed provider executable.
+Set `client` to `claude` and select its executable for Claude Code. The example
+uses your existing provider sign-in and normal permissions.
 
 ```python
 import json
@@ -203,15 +208,26 @@ run an unreviewed release.
 
 Use a disposable repository with a committed starting point for your first
 attempt. Create separate author and reviewer worktrees, enroll that repository
-once, and launch Codex in the author checkout and Claude in the reviewer checkout
-using the invocation example above. Both worktrees must resolve to the same Git
-common directory. Review each launch's checkout path and hook command, including
-any trust prompt presented by the provider.
+once using [setup](SETUP.md#check-readiness-or-enroll-another-project), and verify
+that both worktrees resolve to the same Git common directory. In separate
+interactive terminals, launch Codex in the author checkout and Claude in the
+reviewer checkout:
+
+```sh
+~/.local/bin/multithread launch codex --repo /absolute/author-checkout
+~/.local/bin/multithread launch claude --repo /absolute/reviewer-checkout
+```
+
+Replace the checkout paths with your worktrees and use the exact installed
+launcher path if it differs. If a provider is not on `PATH`, add
+`--provider /absolute/path/to/provider` with its reviewed executable. Review
+each launch's provider, checkout and hook command, then type `launch`. Complete
+any native trust review presented by the provider.
 
 Keep these two interactive sessions open and send later wakes and release
 instructions to those same sessions. If one closes, use the provider's exact
 session-resume facility with the same reviewed hook configuration. The launch
-example above supplies hook arguments; it does not select a session to resume.
+commands above supply hook arguments; they do not select a session to resume.
 
 Give Claude a bounded assignment to follow the review and return-handoff flow
 below for Codex's commits. Specify the agreed resource, scope, test command,

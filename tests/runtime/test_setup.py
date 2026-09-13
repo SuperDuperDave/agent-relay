@@ -257,7 +257,10 @@ class SetupTests(unittest.TestCase):
         self.assertTrue(all(row[0] == self.launcher for row in self.commands))
         self.assertFalse(result["changes_provider_settings"])
         self.assertFalse(result["changes_permissions"])
-        self.assertIn("  Command: " + shlex.join(command), self.display(result))
+        output = self.display(result)
+        launch_line = "  Command: " + shlex.join(command)
+        self.assertIn(launch_line, output)
+        self.assertLess(output.index(launch_line), output.index("First collaboration,"))
 
     def test_human_provider_error_is_visible_beside_state_without_erasing_readiness(self):
         def prepare(client, repo, launcher, path):
@@ -376,6 +379,9 @@ class SetupTests(unittest.TestCase):
         self.assertIn("Launcher: " + self.launcher, output.getvalue())
         self.assertIn("Git common directory: " + self.doctor["git_common_dir"], output.getvalue())
         self.assertIn("not checked", output.getvalue())
+        collaboration = output.getvalue().index("First collaboration,")
+        for client in ("codex", "claude"):
+            self.assertLess(output.getvalue().index(client + ": Install or locate the provider"), collaboration)
 
 
 if __name__ == "__main__":

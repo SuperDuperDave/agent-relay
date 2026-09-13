@@ -414,7 +414,7 @@ class _Driver:
 
 
 def run(process, task: bytes, repo: str, resume: str | None, directory: Path,
-        envelope: dict, timeout: float, control=None, observer=None, expected_hook=None) -> None:
+        envelope: dict, timeout: float, control=None, observer=None, expected_hook=None, feedback=None) -> None:
     """Observe a native terminal turn separately from the caller's cleanup."""
     driver = _Driver(process, task, repo, resume, envelope, timeout, control, expected_hook)
     owned_observer = observer is None
@@ -428,6 +428,8 @@ def run(process, task: bytes, repo: str, resume: str | None, directory: Path,
             driver.request("initialize", {"clientInfo": {"name": "multithread", "title": "Multithread",
                                                          "version": "0.4.1"}})
             while not observation.eof:
+                if feedback is not None:
+                    feedback()
                 driver.poll_control()
                 if driver.outgoing and not writing:
                     selector.register(process.stdin, selectors.EVENT_WRITE, "stdin")

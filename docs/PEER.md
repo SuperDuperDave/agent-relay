@@ -157,12 +157,16 @@ Task text goes through stdin as data, never shell evaluation or command-line
 prompt interpolation. Use `--task-file -` to supply it from stdin directly.
 
 The task limit is 64 KiB. Larger artifacts belong in the repository and can be
-referenced by the task. The default timeout is 600 seconds; use `--timeout` to
-adjust it for the work. Multithread imposes no native turn cap by default. Supply
-`--max-turns` for an explicit Claude turn limit. Codex performs one native turn
+referenced by the task. The default timeout is 600 seconds; use `--timeout`
+with an integer from 1 through 3600 seconds to adjust it for the work.
+Multithread imposes no native turn cap by default. Supply `--max-turns` with an
+integer from 1 through 3600 for an explicit Claude turn limit. Codex performs one native turn
 with its normal tool loop. Choose bounds proportionate
 to the task so the peer has time to inspect evidence and produce a useful
 answer. Multithread makes one invocation and never automatically retries it.
+
+For a concrete example of a review contribution and its limits, see
+[a peer review that improved v0.4.6](examples/PEER-REVIEW.md).
 
 Normal permission rules remain in force. When a tool needs approval that this
 noninteractive call cannot obtain, Claude denies it and reports the denial.
@@ -202,6 +206,15 @@ to choose a durable location; an existing directory is refused without changes.
 The default is a retained temporary directory, subject to the OS's cleanup
 policy. Its location is printed before launch, together with Claude's requested
 session UUID or a note that Codex will assign the identity.
+While waiting, the owning call prints a content-free diagnostic to stderr about
+every 30 seconds: elapsed time against the chosen call limit, its observed
+stage, and input availability when known. An advertised input target does not
+establish native acceptance. These messages show that the caller is waiting,
+not that the provider is making progress; silence does not establish a stall.
+The terminal or calling application may buffer or hide stderr. `--json` stdout
+still contains only the final result. Ordinary Claude calls retain their normal
+final-JSON mode; waiting feedback does not inspect native transcripts or change
+permissions, deadlines or retry behavior.
 Keep these files private: native output and task text can contain sensitive
 project information. Nothing is uploaded or published by Multithread's recorder.
 `stdout_observation` records the byte count and SHA-256 of observed stdout.

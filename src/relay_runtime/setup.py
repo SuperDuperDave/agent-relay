@@ -229,13 +229,13 @@ def _display(report):
     print(text(report["path_note"]))
     if report["launcher"]:
         print("Launcher: " + text(report["launcher"]))
-    if report.get("first_collaboration_url"):
-        print("First collaboration, when you authorize provider use: "
-              + text(report["first_collaboration_url"]))
     for entry in report["next_actions"]:
         print(text(entry["stage"]) + ": " + text(entry["action"]))
         if "command" in entry:
             provider._display_command("  Command", entry["command"])
+    if report.get("first_collaboration_url"):
+        print("First collaboration, when you authorize provider use: "
+              + text(report["first_collaboration_url"]))
     observations = [report["runtime"], *(report["repository"].get(key, {}) for key in ("enrollment", "doctor", "status"))]
     for entry in observations:
         if entry.get("state") in {"verified", "not_checked", "not_requested", None}:

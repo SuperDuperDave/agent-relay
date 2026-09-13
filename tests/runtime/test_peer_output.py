@@ -1,6 +1,6 @@
 """Human peer summaries preserve answers while exposing unresolved observations."""
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from copy import deepcopy
 import io
 import json
@@ -8,6 +8,7 @@ from pathlib import Path
 import shlex
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -17,6 +18,93 @@ from relay_runtime import provider
 
 
 class PeerOutputTests(unittest.TestCase):
+    def test_waiting_feedback_is_sparse_and_contains_no_private_provider_content(self):
+        envelope = {"state": "uncertain", "task_submission": "accepted",
+                    "result": "ARTIFICIAL-PRIVATE-ANSWER", "task": "ARTIFICIAL-PRIVATE-TASK",
+                    "session_id": "ARTIFICIAL-PRIVATE-SESSION", "model": "ARTIFICIAL-PRIVATE-MODEL",
+                    "provider_errors": ["ARTIFICIAL-PRIVATE-ERROR"],
+                    "evidence_directory": "/tmp/ARTIFICIAL-PRIVATE-PATH"}
+        original = deepcopy(envelope)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with (redirect_stdout(stdout), redirect_stderr(stderr),
+              mock.patch.object(provider, "_WAIT_FEEDBACK_SECONDS", 30),
+              mock.patch.object(provider.time, "monotonic",
+                                side_effect=[0, 29.99, 30, 30.01, 59.99, 60, 500, 500])):
+            feedback = provider._WaitingFeedback(0, 600, envelope, None)
+            for _ in range(8):
+                feedback()
+        self.assertEqual("", stdout.getvalue())
+        lines = stderr.getvalue().splitlines()
+        self.assertEqual(3, len(lines), "A delayed diagnostic must not cause a catch-up burst")
+        for elapsed, line in zip((30, 60, 500), lines):
+            self.assertIn(f"{elapsed}s elapsed / 600s call limit", line)
+            self.assertIn("waiting for provider return", line)
+            self.assertIn("input not enabled for this call", line)
+            self.assertIn("provider progress unknown", line)
+        self.assertNotIn("ARTIFICIAL-PRIVATE", stderr.getvalue())
+        self.assertEqual(original, envelope)
+
+    def test_waiting_feedback_tracks_local_input_and_submission_observations(self):
+        envelope = {"state": "uncertain", "task_submission": "not_submitted"}
+        control = SimpleNamespace(closed=False, accepting=True, target=None)
+        stderr = io.StringIO()
+        with (redirect_stderr(stderr),
+              mock.patch.object(provider, "_WAIT_FEEDBACK_SECONDS", 30),
+              mock.patch.object(provider.time, "monotonic", side_effect=range(30, 241, 30))):
+            feedback = provider._WaitingFeedback(0, 600, envelope, control)
+            feedback()
+            envelope["task_submission"] = "requested"
+            feedback()
+            envelope["task_submission"] = "accepted"
+            control.target = ("ARTIFICIAL-PRIVATE-SESSION", "ARTIFICIAL-PRIVATE-TURN")
+            feedback()
+            envelope["control_fault"] = {"detail": "ARTIFICIAL-PRIVATE-FAULT"}
+            feedback()
+            del envelope["control_fault"]
+            control.accepting = False
+            feedback()
+            control.accepting, control.closed = True, True
+            feedback()
+            envelope["state"] = "returned"
+            feedback()
+            envelope.update(state="ARTIFICIAL-PRIVATE-STATE", task_submission="ARTIFICIAL-PRIVATE-SUBMISSION")
+            feedback()
+        lines = stderr.getvalue().splitlines()
+        self.assertEqual(8, len(lines))
+        self.assertIn("waiting for native setup; task not submitted", lines[0])
+        self.assertIn("input target not advertised", lines[0])
+        self.assertIn("task submission requested; acceptance not yet observed", lines[1])
+        self.assertIn("input target advertised; new input acceptance unknown", lines[2])
+        self.assertIn("input observation unavailable", lines[3])
+        self.assertNotIn("input target advertised", lines[3])
+        for line in lines[4:]:
+            self.assertIn("input closed", line)
+        self.assertIn("native return observed; waiting for owned process exit", lines[6])
+        self.assertIn("waiting for provider return", lines[7])
+        self.assertNotIn("ARTIFICIAL-PRIVATE", stderr.getvalue())
+        self.assertTrue(all("provider progress unknown" in line for line in lines))
+
+    def test_failed_waiting_sink_is_disabled_without_changing_the_observation(self):
+        closed = io.StringIO()
+        closed.close()
+        broken = mock.Mock()
+        broken.write.side_effect = BrokenPipeError("ARTIFICIAL-PRIVATE-SINK")
+        encoding = mock.Mock()
+        encoding.write.side_effect = UnicodeEncodeError("ascii", "雪", 0, 1, "fixture")
+        for sink in (closed, broken, encoding):
+            with self.subTest(sink=type(sink).__name__):
+                envelope = {"state": "uncertain", "needs_attention": False}
+                with (redirect_stderr(sink),
+                      mock.patch.object(provider.time, "monotonic", side_effect=[30, 60]),
+                      mock.patch.object(provider, "_WAIT_FEEDBACK_SECONDS", 30)):
+                    feedback = provider._WaitingFeedback(0, 600, envelope, None)
+                    feedback()
+                    feedback()
+                self.assertTrue(feedback.disabled)
+                self.assertEqual({"state": "uncertain", "needs_attention": False}, envelope)
+                if sink is not closed:
+                    sink.write.assert_called_once()
+
     def display(self, *, report_entry=None, **changes):
         envelope = {
             "state": "returned", "result": "The reviewed change handles the boundary case.",

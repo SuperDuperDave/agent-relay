@@ -179,7 +179,7 @@ class ClaudeProtocolTests(unittest.TestCase):
                     stream.close()
 
     def run_native(self, steps, *, task=None, control=None, resume=None, session=SESSION,
-                   timeout=5, pipe_size=None):
+                   timeout=5, pipe_size=None, feedback=None):
         self.count += 1
         self.specification.write_text(json.dumps(steps))
         self.requests.unlink(missing_ok=True)
@@ -197,7 +197,7 @@ class ClaudeProtocolTests(unittest.TestCase):
                     "needs_attention": True, "usage": None}
         body = (task if task is not None else self.task).encode("utf-8")
         claude_peer.run(process, body, str(self.repo), resume, directory, envelope,
-                        timeout, control=control)
+                        timeout, control=control, feedback=feedback)
         return envelope, directory, process
 
     def submitted(self):
@@ -213,6 +213,21 @@ class ClaudeProtocolTests(unittest.TestCase):
         return raw
 
     # --- ordinary return -------------------------------------------------
+
+    def test_waiting_callback_runs_during_native_silence_without_resubmitting_task(self):
+        feedback = mock.Mock()
+        envelope, directory, _ = self.run_native(
+            [{"read": 1}, {"sleep": 0.12}, {"emit": init()},
+             {"sleep": 0.12}, {"emit": result()}], feedback=feedback)
+        self.assertEqual("returned", envelope["state"])
+        self.assertEqual(ANSWER, envelope["result"])
+        self.assertFalse(envelope["needs_attention"])
+        self.assertGreaterEqual(feedback.call_count, 3)
+        self.assertTrue(all(call == mock.call() for call in feedback.call_args_list))
+        submitted = self.submitted()
+        self.assertEqual(1, len(submitted))
+        self.assertEqual(self.task, submitted[0]["message"]["content"])
+        self.assert_raw(envelope, directory)
 
     def test_initial_task_returns_the_exact_final_answer_with_native_identity(self):
         control = Control()
