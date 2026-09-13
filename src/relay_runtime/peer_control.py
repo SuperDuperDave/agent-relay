@@ -462,6 +462,8 @@ def control_main(argv=None):
     args = parser.parse_args(argv)
     files = None
     result = {"schema": 1, "state": "unavailable", "call_directory": str(args.call_dir.absolute())}
+    if args.command == "status":
+        result.update(input_target="unavailable", live_process="not_verified")
     try:
         if args.command != "status":
             args.request_id = _uuid(args.request_id or str(uuid.uuid4()))
@@ -476,9 +478,18 @@ def control_main(argv=None):
         result.update(call)
         if args.command == "status":
             target = files.target(call)
+            if target["closed"]:
+                input_target = "closed"
+                detail = "The input mailbox is closed to new input."
+            elif target["session_id"] is None:
+                input_target = "not_advertised"
+                detail = "No input target has been advertised yet; new input cannot be submitted."
+            else:
+                input_target = "advertised"
+                detail = "An exact input target is advertised; native acceptance of new input is not verified."
             result.update(state="closed" if target["closed"] else "open", target=target,
-                          closed=target["closed"], live_process="not_verified",
-                          detail="Target metadata is an observation, not proof that its owner is still running.")
+                          closed=target["closed"], input_target=input_target,
+                          detail=detail + " Target metadata is an observation, not proof that its owner is still running.")
         elif args.command == "send":
             result.update(session_id=args.session, turn_id=args.turn)
             print("multithread peer input: request " + args.request_id + "; call directory " + str(files.directory)

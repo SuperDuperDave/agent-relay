@@ -320,6 +320,30 @@ print('retained bytes verified')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("retained bytes verified", result.stdout)
 
+    def test_peer_producer_identity_retains_loaded_runtime_after_activation_and_file_changes(self):
+        self.payload = {name: (SOURCE / name).read_bytes() for name in subject.PAYLOAD_FILES}
+        self.write_source()
+        first = self.install()
+        expected = {"status": "recorded", "runtime_manifest_sha256": self.digest}
+        self.payload["relay_runtime/provider.py"] += b"\n# Different disposable runtime fixture.\n"
+        self.write_source()
+        second_digest = self.install(activate=False)
+        self.assertNotEqual(first.digest, second_digest)
+        result = self.child(f"""
+runtime = installation.load_active()
+runtime.install_importer()
+from relay_runtime import provider
+before = provider._producer_runtime()
+installation.activate({second_digest!r}, expected_activation={first.activation_id!r})
+(runtime.origin / 'relay_runtime/provider.py').write_text("raise AssertionError('changed after import')\\n")
+(runtime.origin / 'relay_runtime/__init__.py').unlink()
+assert installation.load_active().digest == {second_digest!r}
+assert provider._producer_runtime() == before
+print(json.dumps(before))
+""")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(expected, json.loads(result.stdout))
+
     def test_loader_rejects_preloaded_namespace_descendant(self):
         self.install()
         result = self.child("""

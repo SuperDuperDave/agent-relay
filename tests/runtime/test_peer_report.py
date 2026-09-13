@@ -27,12 +27,38 @@ CALL_FIELDS = {
     "session_identity", "stdout_observation", "faults", "unavailable_stage",
     "provider_measurement_scope", "cost_scope",
     "task_submission", "unsupported_native_request_count", "invalid_measurements",
+    "producer_runtime_identity",
     "hook_delivery", "provider_tools", "relay_acknowledgement", "workflow_completion",
 }
 UNCHECKED = ("hook_delivery", "provider_tools", "relay_acknowledgement", "workflow_completion")
 
 
 class PeerReportTests(unittest.TestCase):
+    def test_runtime_provenance_is_selected_without_hashes_or_current_installation_reads(self):
+        digest = "ab" * 32
+        cases = (
+            ({}, "not_recorded"),
+            ({"producer_runtime": {"status": "recorded", "runtime_manifest_sha256": digest}}, "recorded"),
+            ({"producer_runtime": {"status": "unavailable", "runtime_manifest_sha256": None}}, "unavailable"),
+            ({"producer_runtime": {"status": "recorded", "runtime_manifest_sha256": CANARY}}, "invalid"),
+            ({"producer_runtime": {"status": "recorded", "runtime_manifest_sha256": digest.upper()}}, "invalid"),
+            ({"producer_runtime": {"status": "unavailable", "runtime_manifest_sha256": digest}}, "invalid"),
+            ({"producer_runtime": {"status": CANARY}}, "invalid"),
+            ({"producer_runtime": None}, "invalid"),
+        )
+        for changes, expected in cases:
+            with self.subTest(expected=expected, changes=changes):
+                self.write(self.receipt(**changes))
+                code, report = self.invoke()
+                self.assertEqual(0, code)
+                self.assertEqual("returned", report["call"]["state"])
+                self.assertEqual(expected, report["call"]["producer_runtime_identity"])
+                code, output = self.invoke(structured=False)
+                self.assertEqual(0, code)
+                self.assertIn("Recorded producer runtime identity: " + expected, output)
+                self.assertNotIn(digest, output + json.dumps(report))
+                self.assertNotIn(CANARY, output + json.dumps(report))
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="multithread-report-", dir="/tmp")
         self.addCleanup(temporary.cleanup)

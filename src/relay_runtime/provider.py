@@ -444,7 +444,7 @@ def _interpret(directory, envelope):
         envelope["message"] = "Assess the answer and durable Multithread evidence; a returned turn is not workflow completion."
 
 
-def peer_main(argv=None):
+def peer_main(argv=None, *, report_entry=None):
     raw = list(sys.argv[1:] if argv is None else argv)
     if raw and raw[0] == "report":
         return report_main(raw[1:])
@@ -466,6 +466,7 @@ def peer_main(argv=None):
     parser.add_argument("--dry-run", action="store_true", help="validate task/configuration and print a plan; no provider or evidence writes")
     parser.add_argument("--json", action="store_true", help="return a structured result; this DOES launch unless --dry-run is used; exit 0 means a returned turn, so also check needs_attention and task evidence")
     args = parser.parse_args(raw)
+    args.report_entry = report_entry
     if args.client == "codex" and args.max_turns is not None:
         parser.error("--max-turns is a Claude option; Codex returns one native turn with its normal tool loop")
     if args.client == "claude" and args.resume is not None:
@@ -475,6 +476,16 @@ def peer_main(argv=None):
             parser.error(str(exc))
     with _call_signals() as interruption:
         return _run_peer(args, interruption)
+
+
+def _producer_runtime():
+    """Observe this module's retained manifest identity, never current selection."""
+    runtime = getattr(globals().get("__loader__"), "runtime", None)
+    digest = getattr(runtime, "digest", None)
+    if (isinstance(digest, str) and len(digest) == 64
+            and all(character in "0123456789abcdef" for character in digest)):
+        return {"status": "recorded", "runtime_manifest_sha256": digest}
+    return {"status": "unavailable", "runtime_manifest_sha256": None}
 
 
 def _run_peer(args, interruption):
@@ -487,7 +498,8 @@ def _run_peer(args, interruption):
                 "hook_delivery": "unknown", "provider_tools": "unknown",
                 "relay_acknowledgement": "not_checked", "workflow_completion": "not_checked",
                 "authentication": "inherited from provider; not verified",
-                "elapsed_seconds": None, "usage": None, "actual_billed_cost": "unknown"}
+                "elapsed_seconds": None, "usage": None, "actual_billed_cost": "unknown",
+                "producer_runtime": _producer_runtime()}
     directory = None
     process = None
     observer = None
@@ -529,6 +541,7 @@ def _run_peer(args, interruption):
                                    "input_mode": control.call["input_mode"],
                                    "call_directory": str(directory)}
         _record(directory, "request.json", {"schema": 1, "argv": native, "repo": plan["repo"],
+                                           "producer_runtime": envelope["producer_runtime"],
                                            "requested_session_id": session, "resumed": bool(args.resume),
                                            "task_sha256": hashlib.sha256(task).hexdigest(),
                                            "timeout_seconds": args.timeout})
@@ -666,7 +679,7 @@ def _run_peer(args, interruption):
     if args.json:
         print(json.dumps(envelope, ensure_ascii=True, sort_keys=True))
     else:
-        _display_peer(envelope)
+        _display_peer(envelope, report_entry=args.report_entry)
     return code
 
 
@@ -722,6 +735,16 @@ def _report_projection(record):
     call["task_submission"] = (
         "not_recorded" if "task_submission" not in record else record["task_submission"]
         if record["task_submission"] in ("not_submitted", "requested", "accepted") else "unknown")
+    producer = record.get("producer_runtime")
+    producer_status = "not_recorded" if "producer_runtime" not in record else "invalid"
+    if isinstance(producer, dict):
+        digest = producer.get("runtime_manifest_sha256")
+        if (producer.get("status") == "recorded" and isinstance(digest, str)
+                and len(digest) == 64 and all(character in "0123456789abcdef" for character in digest)):
+            producer_status = "recorded"
+        elif producer.get("status") == "unavailable" and digest is None:
+            producer_status = "unavailable"
+    call["producer_runtime_identity"] = producer_status
     call["unavailable_stage"] = (record.get("unavailable_stage") if record.get("unavailable_stage") in
                                   ("task_read", "relay_configuration", "evidence_setup", "provider_spawn",
                                    "provider_call", "result_read") else "unknown")
@@ -828,6 +851,7 @@ def report_main(argv=None):
         if call is not None:
             print(f"Recorded call: {call['provider']} / {call['state']}")
             print("Recorded task submission: " + call["task_submission"])
+            print("Recorded producer runtime identity: " + call["producer_runtime_identity"] + " (digest omitted)")
             print("Needs attention: " + ("yes" if call["needs_attention"] else "no"))
             if call["unavailable_stage"] != "unknown":
                 print("Unavailable stage: " + call["unavailable_stage"])
@@ -852,7 +876,7 @@ def report_main(argv=None):
     return 0 if report["report_state"] == "reported" else 1
 
 
-def _display_peer(envelope):
+def _display_peer(envelope, *, report_entry=None):
     """Show the observed answer and outstanding conditions without changing state."""
     print(f"Multithread peer: {envelope['state']}")
     if envelope.get("needs_attention"):
@@ -925,9 +949,14 @@ def _display_peer(envelope):
         print(f"Observed session (unverified): {observed_session[:2000]}" +
               (" [Detail truncated.]" if len(observed_session) > 2000 else ""))
     if envelope["evidence_directory"]:
-        print(f"Local evidence: {envelope['evidence_directory']}")
+        print("Local evidence: " + _display_text(envelope["evidence_directory"]))
     if envelope.get("needs_attention"):
         if envelope["evidence_directory"]:
             print("Next: inspect the local evidence and any task artifacts before deciding on follow-up.")
+            directory = str(envelope["evidence_directory"])
+            print("Private result receipt: " + _display_text(str(Path(directory) / "result.json")))
+            entry = report_entry if report_entry is not None else [str(account_launcher()), "peer"]
+            _display_command("Support report", [*entry, "report", "--call-dir", directory, "--json"])
+            print("The support report omits the answer and private detail; it does not assess task completion.")
         else:
             print("Next: inspect the reported condition before deciding whether to retry.")

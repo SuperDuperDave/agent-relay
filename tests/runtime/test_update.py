@@ -322,6 +322,22 @@ class UpdateCommandTests(ReleaseFixture):
             code = (update.install_main if install else update.update_main)(["--json", *extra])
         return code, json.loads(output.getvalue())
 
+    def invoke_human(self, *extra, install=False):
+        output, errors = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), redirect_stderr(errors):
+            code = (update.install_main if install else update.update_main)(list(extra))
+        return code, output.getvalue(), errors.getvalue()
+
+    def ready_setup(self):
+        return {"state": "ready", "repo": str(self.repo),
+                "runtime": {"state": "verified"},
+                "repository": {"state": "verified", "enrollment": {"state": "verified"},
+                               "identity": {"git_common_dir": str(self.repo / ".git")}},
+                "providers": {"codex": {"state": "prepared"}, "claude": {"state": "missing"}},
+                "first_collaboration_url": update.PROJECT + "/blob/main/docs/PEER.md#first-collaboration",
+                "next_actions": [{"stage": "codex", "action": "When provider launch is authorized, review the invocation.",
+                                  "command": [self.launcher, "launch", "codex", "--repo", str(self.repo)]}]}
+
     def approval(self):
         return ["--version", "0.2.0", "--approve-sha256", self.release["release_id"],
                 "--expected-activation", "d" * 32, "--yes"]
@@ -342,6 +358,175 @@ class UpdateCommandTests(ReleaseFixture):
         self.assertEqual(0, code)
         self.assertEqual(["--enroll-repo", str(self.repo)], result["apply_argv"][-2:])
         self.assertEqual(result["apply_argv"], shlex.split(result["apply_command"]))
+        self.assertEqual([], self.setup_calls)
+
+    def test_human_check_shows_the_exact_guarded_update_with_optional_repository(self):
+        for repository in ([], ["--enroll-repo", str(self.repo)]):
+            with self.subTest(repository=bool(repository)):
+                code, report = self.invoke("--check", *repository)
+                human_code, output, _ = self.invoke_human("--check", *repository)
+                self.assertEqual((0, 0), (code, human_code))
+                command = next(line.split(": ", 1)[1] for line in output.splitlines()
+                               if line.startswith("Apply this exact update selection: "))
+                self.assertEqual(report["apply_argv"], shlex.split(command))
+                self.assertNotIn("setup --apply", output)
+                self.assertIn("Selected release: 0.2.0", output)
+        update.download.assert_not_called()
+        self.assertEqual([], self.setup_calls)
+
+    def test_human_current_release_only_offers_setup_for_a_chosen_repository(self):
+        self.active = self.active_state("0.2.0", self.release["release_id"], "d" * 32)
+        code, output, _ = self.invoke_human("--check")
+        self.assertEqual(0, code)
+        self.assertIn("Multithread: up to date", output)
+        self.assertIn("Repository setup: not requested.", output)
+        self.assertNotIn("setup --", output)
+        code, output, _ = self.invoke_human("--check", "--repo", str(self.repo))
+        self.assertEqual(0, code)
+        for label, option in (("Check repository", "--check"),
+                              ("To explicitly enroll/check this repository", "--apply")):
+            line = next(line for line in output.splitlines() if line.startswith(label + ": "))
+            argv = shlex.split(line.split(": ", 1)[1])
+            self.assertEqual([self.launcher, "setup", "--repo", str(self.repo), option], argv)
+        self.assertEqual([], self.setup_calls)
+        update.download.assert_not_called()
+
+    def test_human_code_only_install_and_update_do_not_assume_current_repository(self):
+        for install in (False, True):
+            with self.subTest(install=install):
+                self.active = ({"installed": False, "activation": None, "launcher": self.launcher}
+                               if install else self.active_state("0.1.0", "c" * 64, "d" * 32))
+                self.expected = None if install else "d" * 32
+                code, output, _ = self.invoke_human(*(["--yes"] if install else self.approval()), install=install)
+                self.assertEqual(0, code)
+                self.assertIn("Multithread: runtime " + ("installed" if install else "updated"), output)
+                self.assertIn("Repository setup: not requested.", output)
+                self.assertNotIn("ready for setup", output)
+                self.assertNotIn("setup --", output)
+                self.assertNotIn(str(Path.cwd()), output)
+        self.assertEqual([], self.setup_calls)
+
+    def test_human_install_surfaces_captured_readiness_providers_and_first_collaboration(self):
+        self.active = {"installed": False, "activation": None, "launcher": self.launcher}
+        self.expected = None
+        report = self.ready_setup()
+        self.setup_response = subprocess.CompletedProcess([], 0, json.dumps(report), "")
+        code, output, _ = self.invoke_human("--yes", "--repo", str(self.repo), install=True)
+        self.assertEqual(0, code)
+        for expected in ("Runtime installation: installed", "Repository readiness: ready",
+                         "Runtime: verified", "Repository: verified", "codex: prepared", "claude: missing",
+                         "Git common directory: " + str(self.repo / ".git"),
+                         "First collaboration, when you authorize provider use: " + report["first_collaboration_url"]):
+            self.assertIn(expected, output)
+        self.assertIn("Provider authentication, hook delivery and tools are not checked", output)
+        self.assertEqual(1, len(self.setup_calls), "display must reuse the captured setup result")
+        command = next(line.split(": ", 1)[1] for line in output.splitlines() if line.startswith("  Command: "))
+        self.assertEqual(report["next_actions"][0]["command"], shlex.split(command))
+
+    def test_human_setup_retains_provider_preparation_failure_without_changing_readiness(self):
+        report = self.ready_setup()
+        report["providers"]["codex"] = {"state": "unavailable", "message": "Synthetic provider executable is not approved."}
+        self.setup_response = subprocess.CompletedProcess([], 0, json.dumps(report), "")
+        code, output, _ = self.invoke_human(*self.approval(), "--repo", str(self.repo))
+        self.assertEqual(0, code)
+        self.assertIn("Repository readiness: ready", output)
+        self.assertIn("codex: unavailable; Synthetic provider executable is not approved.", output)
+        self.assertEqual(1, len(self.setup_calls))
+
+    def test_human_partial_setup_exposes_captured_failure_and_read_only_continuation(self):
+        report = self.ready_setup()
+        report.update(state="not_ready", providers={"codex": {"state": "not_checked"}}, next_actions=[])
+        report.pop("first_collaboration_url")
+        report["repository"].update(state="uncertain", enrollment={
+            "state": "uncertain", "message": "Synthetic enrollment receipt unavailable; inspect before retrying.",
+            "stderr": "first diagnostic\nsecond diagnostic\x1b[31m", "stderr_truncated": True},
+            doctor={"state": "verified"}, status={"state": "verified"})
+        self.setup_response = subprocess.CompletedProcess([], 1, json.dumps(report), "")
+        code, output, _ = self.invoke_human(*self.approval(), "--repo", str(self.repo))
+        self.assertEqual(1, code)
+        for expected in ("Runtime installation: updated", "Repository readiness: not ready",
+                         "Repository: uncertain", "Enrollment observation: uncertain",
+                         "Synthetic enrollment receipt unavailable", "Enrollment diagnostic: first diagnostic",
+                         "Enrollment diagnostic: second diagnostic\\u001b[31m", "diagnostic output was truncated"):
+            self.assertIn(expected, output)
+        self.assertNotIn("\x1b", output)
+        self.assertNotIn("First collaboration", output)
+        check = next(line.split(": ", 1)[1] for line in output.splitlines()
+                     if line.startswith("Check repository before retrying setup: "))
+        self.assertEqual([self.launcher, "setup", "--check", "--repo", str(self.repo), "--json"], shlex.split(check))
+        self.assertEqual(1, len(self.setup_calls))
+
+    def test_human_uncertain_setup_does_not_suggest_repeating_enrollment(self):
+        self.setup_response = subprocess.TimeoutExpired([self.launcher], 90)
+        code, output, _ = self.invoke_human(*self.approval(), "--repo", str(self.repo))
+        self.assertEqual(1, code)
+        self.assertIn("Runtime installation: updated", output)
+        self.assertIn("Repository readiness: uncertain", output)
+        self.assertIn("Check repository before retrying setup:", output)
+        self.assertNotIn("--apply", output)
+        self.assertEqual(1, len(self.setup_calls))
+
+    def test_human_uncertain_install_shows_inspection_without_setup(self):
+        self.install_error = update.UpdateError("Synthetic lost receipt\x1b[2J; inspect current state.")
+        code, output, errors = self.invoke_human(*self.approval(), "--repo", str(self.repo))
+        self.assertEqual(1, code)
+        self.assertIn("Runtime installation: unknown", output)
+        self.assertIn("Synthetic lost receipt\\u001b[2J", output)
+        self.assertNotIn("\x1b", output + errors)
+        self.assertIn("Inspect: " + shlex.join([self.launcher, "runtime", "inspect"]), output)
+        self.assertNotIn("--apply", output)
+        self.assertNotIn("Active release:", output)
+        self.assertEqual(1, sum("install" in row for row in self.commands))
+        self.assertEqual([], self.setup_calls)
+
+    def test_unsafe_paths_are_displayed_as_exact_json_argv_without_changing_json_or_execution(self):
+        self.repo = self.base / "repo\n\x1b[31m\t\u202e 'quoted'"
+        self.repo.mkdir()
+        self.launcher = str(self.account / "synthetic\n\x1b-launcher")
+        self.active["launcher"] = self.launcher
+        report = self.ready_setup()
+        report["providers"]["codex"] = {"state": "unavailable", "message": "Synthetic\r\x1b[2J provider error"}
+        self.setup_response = subprocess.CompletedProcess([], 0, json.dumps(report), "")
+        code, output, errors = self.invoke_human(*self.approval(), "--repo", str(self.repo))
+        self.assertEqual(0, code)
+        self.assertTrue(all(character.isprintable() or character == "\n" for character in output + errors))
+        self.assertIn("Synthetic\\r\\u001b[2J provider error", output)
+        command = next(line.split(": ", 1)[1] for line in output.splitlines() if line.startswith("  Command (JSON argv): "))
+        self.assertEqual(report["next_actions"][0]["command"], json.loads(command))
+        self.assertEqual([self.launcher, "setup", "--apply", "--repo", str(self.repo), "--json"], self.setup_calls[0])
+        self.active = self.active_state("0.1.0", "c" * 64, "d" * 32)
+        code, result = self.invoke(*self.approval(), "--repo", str(self.repo))
+        self.assertEqual(0, code)
+        self.assertEqual(report, result["repository"], "human rendering must not alter the captured JSON receipt")
+        self.assertEqual(self.setup_calls[0], shlex.split(result["setup_command"]))
+
+    def test_unsafe_update_check_continuation_retains_original_arguments(self):
+        self.repo = self.base / "repo\n\x1b[2J\t\u202e"
+        self.repo.mkdir()
+        code, report = self.invoke("--check", "--repo", str(self.repo))
+        human_code, output, _ = self.invoke_human("--check", "--repo", str(self.repo))
+        self.assertEqual((0, 0), (code, human_code))
+        self.assertTrue(all(character.isprintable() or character == "\n" for character in output))
+        command = next(line.split(": ", 1)[1] for line in output.splitlines()
+                       if line.startswith("Apply this exact update selection (JSON argv): "))
+        self.assertEqual(report["apply_argv"], json.loads(command))
+        self.assertEqual(report["apply_argv"], shlex.split(report["apply_command"]))
+        self.assertEqual([], self.setup_calls)
+
+    def test_interactive_review_escapes_paths_before_approval_without_execution_changes(self):
+        self.repo = self.base / "repo\n\x1b[2J"
+        self.repo.mkdir()
+        self.launcher = str(self.account / "synthetic\nlauncher")
+        self.active["launcher"] = self.launcher
+        for install in (False, True):
+            with (self.subTest(install=install),
+                  mock.patch.object(update.sys, "stdin", mock.Mock(isatty=lambda: True)),
+                  mock.patch("builtins.input", return_value="cancel")):
+                code, output, errors = self.invoke_human("--repo", str(self.repo), install=install)
+                self.assertEqual(0, code)
+                self.assertIn("repo\\n\\u001b[2J", output)
+                self.assertTrue(all(character.isprintable() or character == "\n" for character in output + errors))
+        self.assertFalse(any("install" in row for row in self.commands))
         self.assertEqual([], self.setup_calls)
 
     def test_noninteractive_update_requires_exact_version_digest_and_activation(self):

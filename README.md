@@ -104,6 +104,10 @@ about intent and capacity, with a ceiling rather than a quota. They are not CLI
 commands or a built-in scheduler; execution depends on available tools, supported
 providers and authorized use.
 
+Collaboration is optional unless your task requires it. It can help with a
+critical change, a stalled investigation or a design that still misses the
+intended look and feel. [Choose the contribution and how to assess it](docs/PEER.md#choose-the-contribution-you-need).
+
 The [manual two-worktree walkthrough](docs/PROVIDERS.md#try-a-review-across-two-worktrees)
 remains available for separate sessions with manual wakes and explicit Git work.
 
