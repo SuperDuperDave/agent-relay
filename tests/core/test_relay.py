@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import sqlite3
 import stat
@@ -36,6 +37,7 @@ if str(SOURCE_DIR) not in sys.path:
 from relay_core.cli import (  # noqa: E402
     MAX_BRIEF_CONTEXT_BYTES,
     MAX_JSON_STDIN,
+    _render_brief,
 )
 from relay_core.protocol import (  # noqa: E402
     ConflictError,
@@ -554,6 +556,178 @@ class EventLedgerTests(RelayTestCase):
 
 
 class BriefingAndDeliveryTests(RelayTestCase):
+    BRIEF_HEADINGS = {
+        "active_claims": "Active claims:",
+        "recent_intents": "Recent work intents (newest first):",
+        "pending_signals": (
+            "Pending targeted/broadcast signals (oldest first; acknowledge after reading):"
+        ),
+        "ratchet_items": "Actionable ratchet items:",
+    }
+
+    def plain_cli(self, *args: str) -> str:
+        command = self.cli_command(*args)
+        command.remove("--json")
+        result = subprocess.run(
+            command, capture_output=True, timeout=15, env=sanitized_env()
+        )
+        self.assertEqual(0, result.returncode, result.stderr.decode())
+        return result.stdout.decode("utf-8")
+
+    def brief_sections(self, context: str) -> dict[str, str]:
+        sections = {}
+        headings = list(self.BRIEF_HEADINGS.items())
+        for index, (key, heading) in enumerate(headings):
+            self.assertEqual(1, context.count(heading), context)
+            section = context.split(heading + "\n", 1)[1]
+            if index + 1 < len(headings):
+                section = section.split(headings[index + 1][1], 1)[0]
+            sections[key] = section
+        return sections
+
+    def assert_dense_brief_visibility(self, padding: str) -> None:
+        summary = 'Quoted "coordination" \\ data: ' + padding * 300
+        with self.open_store() as store:
+            for index in range(12):
+                store.claim(
+                    f"code:dense-{index:02d}-" + "r" * 90,
+                    agent="codex",
+                    session="owner-" + "s" * 110,
+                    purpose=summary,
+                    claim_id=f"clm:dense-{index:04d}-" + "c" * 80,
+                )
+                for kind in ("work.intent", "work.blocked"):
+                    store.emit(self.valid_event(
+                        id=f"evt:dense-{kind}-{index:04d}",
+                        kind=kind,
+                        session="source-" + "s" * 110,
+                        work_id=f"work-{index:02d}-" + "w" * 90,
+                        target="codex",
+                        scope='Scope "quoted" \\ ' + padding * 100,
+                        artifact="receipt:" + "a" * 110,
+                        summary=summary,
+                    ))
+                store.emit(self.valid_event(
+                    id=f"evt:dense-friction-{index:04d}",
+                    kind="friction.observed",
+                    target=f"dense-friction-{index:02d}",
+                    summary=summary,
+                    meta={
+                        "fingerprint": f"dense-friction-{index:02d}",
+                        "category": "context",
+                    },
+                ))
+            before = store.events(limit=100)
+            projection = store.brief("codex", limit=10)
+
+        for limit in (5, 10):
+            with self.subTest(limit=limit):
+                args = ("brief", "--agent", "codex")
+                if limit != 5:
+                    args += ("--limit", str(limit))
+                plain = self.plain_cli(*args).removesuffix("\n")
+                self.assertLessEqual(len(plain.encode("utf-8")), MAX_BRIEF_CONTEXT_BYTES)
+                sections = self.brief_sections(plain)
+                selected_result = self.run_cli(*args)
+                self.assertEqual(0, selected_result.returncode, selected_result.stderr.decode())
+                selected = json.loads(selected_result.stdout)
+                self.assertEqual(limit, selected["limit_per_section"])
+                for key, section in sections.items():
+                    self.assertEqual(limit, len(selected[key]))
+                    self.assertTrue(selected["truncated"][key])
+                    self.assertNotIn("- none", section)
+                    self.assertIn("more queued", section)
+                    self.assertIn("omitted by byte limit", section)
+                    # Even a byte-limited row must keep its quoted fields complete.
+                    for line in section.splitlines():
+                        for field in re.finditer(r'\b\w+=(")', line):
+                            value, _ = json.JSONDecoder().raw_decode(line[field.start(1):])
+                            self.assertIsInstance(value, str)
+                for key in ("pending_signals", "recent_intents"):
+                    displayed = [
+                        int(seq) for seq in re.findall(r"^- seq=(\d+)\b", sections[key], re.M)
+                    ]
+                    expected = [event["seq"] for event in selected[key]]
+                    if key == "pending_signals":
+                        self.assertTrue(displayed, sections[key])
+                    self.assertEqual(expected[:len(displayed)], displayed)
+                    self.assertLess(len(displayed), len(expected))
+                    self.assertRegex(
+                        sections[key], rf"first omitted seq={expected[len(displayed)]}\b"
+                    )
+                self.assertEqual(summary, selected["pending_signals"][0]["summary"])
+                self.assertEqual(summary, selected["active_claims"][0]["purpose"])
+
+        with self.open_store() as store:
+            self.assertEqual(before, store.events(limit=100))
+            self.assertEqual(projection, store.brief("codex", limit=10))
+
+    def test_dense_ascii_brief_preserves_section_visibility_and_pending_identity(self) -> None:
+        self.assert_dense_brief_visibility("x")
+
+    def test_dense_unicode_brief_preserves_section_visibility_and_pending_identity(self) -> None:
+        self.assert_dense_brief_visibility("\U0001f3cb")
+
+    def test_brief_preserves_first_pending_identity_when_its_row_cannot_fit(self) -> None:
+        with self.open_store() as store:
+            for index, summary in enumerate(("\U0001f3cb" * 300, "A shorter later signal")):
+                store.emit(self.valid_event(
+                    id=f"evt:oversized-pending-{index}", kind="work.blocked",
+                    target="codex", summary=summary,
+                ))
+            intent = store.emit(self.valid_event(
+                id="evt:oversized-neighbor-intent", summary="A visible neighboring intent",
+            ))["event"]
+            selected = store.brief("codex")
+            before = store.events()
+
+        # Use a smaller renderer budget to exercise an unfit first row with
+        # protocol-valid data. The ordinary 4 KiB budget is covered above.
+        budget = 800
+        first, later = selected["pending_signals"]
+        first_only = {**selected, "pending_signals": [first]}
+        later_only = {**selected, "pending_signals": [later]}
+        self.assertGreater(len(_render_brief(first_only).encode("utf-8")), budget)
+        self.assertLessEqual(len(_render_brief(later_only).encode("utf-8")), budget)
+        with mock.patch("relay_core.cli.MAX_BRIEF_CONTEXT_BYTES", budget):
+            context = _render_brief(selected)
+        self.assertLessEqual(len(context.encode("utf-8")), budget)
+        sections = self.brief_sections(context)
+        pending = sections["pending_signals"]
+        self.assertNotRegex(pending, r"(?m)^- seq=\d+")
+        self.assertIn("2 item(s) omitted by byte limit", pending)
+        self.assertRegex(pending, rf"first omitted seq={first['seq']}\b")
+        self.assertNotIn("- none", pending)
+        self.assertIn(f"seq={intent['seq']} ", sections["recent_intents"])
+        with self.open_store() as store:
+            self.assertEqual(before, store.events())
+            self.assertEqual(selected, store.brief("codex"))
+
+    def test_sparse_brief_retains_quoted_details_and_distinguishes_empty_sections(self) -> None:
+        with self.open_store() as store:
+            store.emit(self.valid_event(
+                id="evt:sparse-quoted-brief",
+                kind="work.blocked",
+                target="codex",
+                summary='Read "literal" \\ coordination data \U0001f3cb',
+                scope='scope "one"',
+                artifact="receipt:sparse-brief",
+            ))
+            pending = store.brief("codex")["pending_signals"][0]
+            before = store.events()
+        context = self.plain_cli("brief", "--agent", "codex")
+        sections = self.brief_sections(context)
+        for key in ("active_claims", "recent_intents", "ratchet_items"):
+            self.assertEqual("- none", sections[key].strip())
+        signal = sections["pending_signals"]
+        self.assertIn(f"seq={pending['seq']} ", signal)
+        for key in ("summary", "work_id", "target", "scope", "artifact"):
+            self.assertIn(f"{key}={json.dumps(pending[key], ensure_ascii=False)}", signal)
+        self.assertNotIn("omitted", context)
+        self.assertNotIn("more queued", context)
+        with self.open_store() as store:
+            self.assertEqual(before, store.events())
+
     def test_targeted_delivery_is_at_least_once_until_exact_agent_acknowledges(
         self,
     ) -> None:
@@ -818,6 +992,100 @@ class BriefingAndDeliveryTests(RelayTestCase):
             self.assertEqual(7, len(full["active_claims"]))
             self.assertEqual(12, len(full["recent_signals"]))
             self.assertIn("body_hash", full["recent_signals"][0])
+
+    def test_human_status_discloses_every_limited_section_in_compact_and_full_modes(self) -> None:
+        with self.open_store() as store:
+            for index in range(51):
+                store.claim(
+                    f"port:{9100 + index}",
+                    agent="codex",
+                    session="status-owner",
+                    purpose="status limit fixture",
+                    claim_id=f"clm:human-status-{index:04d}",
+                )
+            for index in range(31):
+                store.emit(self.valid_event(
+                    id=f"evt:human-status-friction-{index:04d}",
+                    kind="friction.observed",
+                    target=f"status-friction-{index:02d}",
+                    summary=f"Status friction {index}",
+                    meta={
+                        "fingerprint": f"status-friction-{index:02d}",
+                        "category": "context",
+                    },
+                ))
+            before = store.events(limit=100)
+
+        for compact, limits in ((True, (5, 8, 5)), (False, (50, 30, 30))):
+            with self.subTest(compact=compact):
+                args = ("status", "--compact") if compact else ("status",)
+                result = self.run_cli(*args)
+                self.assertEqual(0, result.returncode, result.stderr.decode())
+                selected = json.loads(result.stdout)
+                keys = ("active_claims", "recent_signals", "ratchet")
+                self.assertEqual(dict(zip(keys, limits)), selected["limits"])
+                self.assertTrue(all(selected["truncated"].values()))
+                self.assertEqual(limits, tuple(len(selected[key]) for key in keys))
+
+                context = self.plain_cli(*args)
+                self.assertIn(
+                    f"showing {limits[0]} active claim(s); more exist", context.splitlines()[0]
+                )
+                claims, rest = context.split("Recent coordination signals:\n", 1)
+                signals, ratchet = rest.split("Meta-ratchet:\n", 1)
+                self.assertEqual(limits[0], claims.count(" <- codex:status-owner "))
+                self.assertEqual(limits[1], len(re.findall(r"^  \[\d+\]", signals, re.M)))
+                self.assertEqual(limits[2], len(re.findall(r"^  status-friction-", ratchet, re.M)))
+                self.assertIn("More coordination signals exist", signals)
+                self.assertIn("More ratchet items exist", ratchet)
+        with self.open_store() as store:
+            self.assertEqual(before, store.events(limit=100))
+
+    def test_human_status_does_not_report_omissions_below_its_limits(self) -> None:
+        with self.open_store() as store:
+            store.claim(
+                "code:status-small", agent="codex", session="status-owner",
+                purpose="small status fixture", claim_id="clm:status-small",
+            )
+            store.emit(self.valid_event(
+                id="evt:small-status-friction",
+                kind="friction.observed",
+                target="small-status-friction",
+                meta={"fingerprint": "small-status-friction", "category": "context"},
+            ))
+        for args in (("status",), ("status", "--compact")):
+            with self.subTest(args=args):
+                context = self.plain_cli(*args)
+                self.assertTrue(context.splitlines()[0].endswith(" - 1 active claim(s)"))
+                self.assertIn("Recent coordination signals:", context)
+                self.assertIn("Meta-ratchet:", context)
+                self.assertNotIn("more exist", context)
+                self.assertNotIn("More coordination signals exist", context)
+                self.assertNotIn("More ratchet items exist", context)
+
+        # A limited claim section must not imply that either neighboring section
+        # was limited; ratchet also has a different compact limit from signals.
+        with self.open_store() as store:
+            for index in range(5):
+                store.claim(
+                    f"code:status-neighbor-{index}", agent="codex", session="status-owner",
+                    purpose="independent status limit", claim_id=f"clm:status-neighbor-{index}",
+                )
+        claims_limited = self.plain_cli("status", "--compact")
+        self.assertIn("showing 5 active claim(s); more exist", claims_limited)
+        self.assertNotIn("More coordination signals exist", claims_limited)
+        self.assertNotIn("More ratchet items exist", claims_limited)
+        with self.open_store() as store:
+            for index in range(5):
+                fingerprint = f"status-neighbor-{index}"
+                store.emit(self.valid_event(
+                    id=f"evt:status-neighbor-{index}", kind="friction.observed",
+                    target=fingerprint,
+                    meta={"fingerprint": fingerprint, "category": "context"},
+                ))
+        ratchet_limited = self.plain_cli("status", "--compact")
+        self.assertIn("More ratchet items exist", ratchet_limited)
+        self.assertNotIn("More coordination signals exist", ratchet_limited)
 
 
 class ClaimAuthorityTests(RelayTestCase):

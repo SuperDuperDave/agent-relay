@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import stat
 import subprocess
@@ -293,16 +294,45 @@ RelayStore.brief = fail_brief
 
     def test_full_context_including_contract_is_utf8_byte_bounded(self):
         self.fixture.initialize()
+        pending_seqs = []
         for index in range(5):
             self.fixture.success("claim", "code:bounded-" + str(index), "--agent", "codex",
                                  "--session", "owner", "--purpose", "\U0001f3cb" * 250)
             self.fixture.success("signal", "work.intent", "--agent", "codex", "--session", "owner",
                                  "--work-id", "bounded-" + str(index), "--summary", "\U0001f3cb" * 300)
-            self.fixture.success("signal", "work.handoff", "--agent", "codex", "--session", "owner", "--commit", "HEAD",
-                                 "--target", "claude", "--work-id", "bounded-" + str(index),
-                                 "--summary", "\U0001f3cb" * 300)
+            handoff = self.fixture.success(
+                "signal", "work.handoff", "--agent", "codex", "--session", "owner", "--commit", "HEAD",
+                "--target", "claude", "--work-id", "bounded-" + str(index),
+                "--summary", "\U0001f3cb" * 300)
+            pending_seqs.append(handoff["event"]["seq"])
+            self.fixture.success("friction", "bounded-friction-" + str(index),
+                                 "--agent", "codex", "--session", "owner",
+                                 "--category", "context", "--summary", "\U0001f3cb" * 300)
         context = self.context(self.hook("claude", "SessionStart", "bounded-session"),
                                "claude", "SessionStart", "bounded-session")
         self.assertIn("\U0001f3cb", context)
-        self.assertGreater(len(context.encode("utf-8")), 4000)
-        self.assertEqual(16, len(self.rows()))
+        brief = "MULTITHREAD BRIEF v1" + context.split("MULTITHREAD BRIEF v1", 1)[1]
+        self.assertLessEqual(len(brief.encode("utf-8")), 4096)
+        headings = (
+            "Active claims:", "Recent work intents (newest first):",
+            "Pending targeted/broadcast signals (oldest first; acknowledge after reading):",
+            "Actionable ratchet items:",
+        )
+        for index, heading in enumerate(headings):
+            self.assertIn(heading, brief)
+            section = brief.split(heading + "\n", 1)[1]
+            if index + 1 < len(headings):
+                section = section.split(headings[index + 1], 1)[0]
+            self.assertNotIn("- none", section)
+            self.assertIn("omitted by byte limit", section)
+            if index == 2:
+                displayed = [int(seq) for seq in re.findall(r"^- seq=(\d+)\b", section, re.M)]
+                self.assertTrue(displayed, section)
+                self.assertEqual(pending_seqs[:len(displayed)], displayed)
+                self.assertLess(len(displayed), len(pending_seqs))
+                self.assertRegex(section, rf"first omitted seq={pending_seqs[len(displayed)]}\b")
+        rows = self.rows()
+        self.assertEqual(21, len(rows))
+        self.context(self.hook("claude", "UserPromptSubmit", "bounded-session"),
+                     "claude", "UserPromptSubmit", "bounded-session")
+        self.assertEqual(rows, self.rows())
