@@ -356,6 +356,80 @@ class ClaudeProtocolTests(unittest.TestCase):
         self.assertEqual("native_query_cumulative", envelope["model_usage_scope_id"])
         self.assertEqual("cumulative_through_latest_native_result", envelope["cost_scope_id"])
 
+    def test_later_valid_related_measurements_clear_current_warnings_but_preserve_history(self):
+        envelope, directory, _ = self.run_native([
+            {"read": 1}, {"emit": init()},
+            {"emit": result(num_turns=-1, duration_ms=True, total_cost_usd="12",
+                             usage={"input_tokens": -1, "output_tokens": 4},
+                             modelUsage={"fixture": {"outputTokens": True}})},
+            {"emit": result(text=LATER, num_turns=2, duration_ms=24, total_cost_usd=0.75,
+                             usage={"input_tokens": 6, "output_tokens": 8},
+                             modelUsage={"fixture": {"outputTokens": 12}})}])
+        self.assertEqual("returned", envelope["state"])
+        self.assertEqual(LATER, envelope["result"])
+        self.assertFalse(envelope["needs_attention"])
+        self.assertEqual(2, envelope["provider_turns"])
+        self.assertEqual(24, envelope["provider_duration_ms"])
+        self.assertEqual(0.75, envelope["estimated_cost_usd"])
+        self.assertEqual({"input_tokens": 6, "output_tokens": 8}, envelope["usage"])
+        self.assertEqual({"fixture": {"outputTokens": 12}}, envelope["model_usage"])
+        self.assertFalse(envelope.get("measurement_errors"))
+        earlier, latest = envelope["native_results"]
+        self.assertEqual({"provider_turns", "provider_duration_ms", "estimated_cost_usd",
+                          "usage.input_tokens", "model_usage.model.outputTokens"},
+                         set(earlier["measurement_errors"]))
+        self.assertIsNone(earlier["num_turns"])
+        self.assertIsNone(earlier["usage"]["input_tokens"])
+        self.assertFalse(latest.get("measurement_errors"))
+        self.assertEqual("consumed", envelope["native_input"][0]["consumption"])
+        self.assert_raw(envelope, directory)
+
+    def test_unrelated_bad_loop_metrics_do_not_warn_about_retained_related_measurements(self):
+        envelope, _, _ = self.run_native([
+            {"read": 1}, {"emit": init()}, {"emit": result()},
+            {"emit": result(text="Background notice", uuids=["unrelated-message"],
+                             num_turns=-1, duration_ms=True,
+                             usage={"input_tokens": "12", "output_tokens": -1},
+                             total_cost_usd=0.75, modelUsage={"fixture": {"outputTokens": 12}})}])
+        self.assertEqual("returned", envelope["state"])
+        self.assertEqual(ANSWER, envelope["result"])
+        self.assertFalse(envelope["needs_attention"])
+        self.assertEqual(1, envelope["provider_turns"])
+        self.assertEqual(12, envelope["provider_duration_ms"])
+        self.assertEqual({"input_tokens": 3, "output_tokens": 4}, envelope["usage"])
+        self.assertEqual(0.75, envelope["estimated_cost_usd"])
+        self.assertEqual({"fixture": {"outputTokens": 12}}, envelope["model_usage"])
+        self.assertFalse(envelope.get("measurement_errors"))
+        background = envelope["native_results"][-1]
+        self.assertFalse(background["related"])
+        self.assertEqual({"provider_turns", "provider_duration_ms", "usage.input_tokens",
+                          "usage.output_tokens"}, set(background["measurement_errors"]))
+
+    def test_repaired_cumulative_metrics_clear_only_their_warnings(self):
+        envelope, _, _ = self.run_native([
+            {"read": 1}, {"emit": init()},
+            {"emit": result(num_turns=-1, duration_ms=True,
+                             usage={"input_tokens": "12", "output_tokens": 4})},
+            {"emit": result(text="Background notice", uuids=["unrelated-message"],
+                             total_cost_usd=-1, modelUsage={"fixture": {"outputTokens": True}})},
+            {"emit": result(text="Later background notice", uuids=["another-unrelated-message"],
+                             total_cost_usd=0.75, modelUsage={"fixture": {"outputTokens": 12}})}])
+        self.assertEqual("returned", envelope["state"])
+        self.assertEqual(ANSWER, envelope["result"])
+        self.assertFalse(envelope["needs_attention"])
+        self.assertIsNone(envelope["provider_turns"])
+        self.assertIsNone(envelope["provider_duration_ms"])
+        self.assertEqual({"input_tokens": None, "output_tokens": 4}, envelope["usage"])
+        self.assertEqual(0.75, envelope["estimated_cost_usd"])
+        self.assertEqual({"fixture": {"outputTokens": 12}}, envelope["model_usage"])
+        self.assertEqual({"provider_turns", "provider_duration_ms", "usage.input_tokens"},
+                         set(envelope["measurement_errors"]))
+        related, faulty, repaired = envelope["native_results"]
+        self.assertEqual(set(envelope["measurement_errors"]), set(related["measurement_errors"]))
+        self.assertEqual({"estimated_cost_usd", "model_usage.model.outputTokens"},
+                         set(faulty["measurement_errors"]))
+        self.assertFalse(repaired.get("measurement_errors"))
+
     def test_resume_initialization_after_background_notice_keeps_the_original_task(self):
         control = Control()
         envelope, _, _ = self.run_native([{'read': 1}, {'emit': init()},

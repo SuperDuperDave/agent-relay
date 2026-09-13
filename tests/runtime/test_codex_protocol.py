@@ -591,6 +591,48 @@ class CodexProtocolTests(unittest.TestCase):
         self.assertEqual(2, len(result["measurement_errors"]))
         self.assertNotIn("fixture-invalid-counter", json.dumps(result))
 
+    def test_valid_latest_usage_clears_previous_measurement_errors_but_keeps_raw_history(self):
+        earlier = {"last": COUNTS, "total": COUNTS, "modelContextWindow": 1000}
+        latest_counts = {name: count * 2 for name, count in COUNTS.items()}
+        latest = {"last": latest_counts, "total": latest_counts, "modelContextWindow": 2000}
+        invalid_updates = ("fixture-invalid-usage", {
+            "last": {**COUNTS, "inputTokens": -1}, "total": False, "modelContextWindow": False})
+        for invalid in invalid_updates:
+            with self.subTest(invalid=invalid):
+                self.configure(events=[usage_notification(earlier), usage_notification(invalid),
+                                       usage_notification(latest), item(), completed()])
+                code, result, directory = self.invoke()
+                self.assertEqual(0, code, result)
+                self.assertEqual("returned", result["state"])
+                self.assertEqual(ANSWER, result["result"])
+                self.assertFalse(result["needs_attention"])
+                self.assertEqual({"last": latest_counts, "total": latest_counts}, result["usage"])
+                self.assertEqual(2000, result["model_context_window"])
+                self.assertEqual([], result.get("measurement_errors", []))
+                raw = [json.loads(line) for line in (directory / "stdout.json").read_text().splitlines()]
+                self.assertIn(usage_notification(invalid), raw)
+                self.assertIn(usage_notification(latest), raw)
+                self.assertEqual("call\n", self.calls.read_text())
+
+    def test_missing_or_null_latest_usage_payload_clears_old_measurements_with_named_warning(self):
+        earlier = {"last": COUNTS, "total": COUNTS, "modelContextWindow": 1000}
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                latest = usage_notification(None)
+                if missing:
+                    del latest["params"]["tokenUsage"]
+                self.configure(events=[usage_notification(earlier), latest, item(), completed()])
+                code, result, _ = self.invoke()
+                self.assertEqual(0, code, result)
+                self.assertEqual("returned", result["state"])
+                self.assertEqual(ANSWER, result["result"])
+                self.assertFalse(result["needs_attention"])
+                self.assertIsNone(result["usage"])
+                self.assertIsNone(result["model_context_window"])
+                self.assertEqual(["usage"], result["measurement_errors"])
+                self.assertEqual("native_thread_last_and_total", result["usage_scope_id"])
+                self.assertEqual("call\n", self.calls.read_text())
+
     def test_invalid_usage_does_not_halt_later_approval_control_handling(self):
         usage = {"last": {**COUNTS, "inputTokens": False}, "total": COUNTS}
         request = {"id": "approval-after-invalid-usage", "method": "item/commandExecution/requestApproval",
@@ -613,8 +655,11 @@ class CodexProtocolTests(unittest.TestCase):
         foreign = {"last": {**COUNTS, "inputTokens": 999}, "total": COUNTS}
         events = [usage_notification(related)]
         for thread, turn in ((OTHER_THREAD, TURN), (THREAD, OTHER_TURN)):
+            missing = usage_notification(None, thread=thread, turn=turn)
+            del missing["params"]["tokenUsage"]
             events.extend([usage_notification(foreign, thread=thread, turn=turn),
-                           usage_notification("fixture-invalid-foreign-usage", thread=thread, turn=turn)])
+                           usage_notification("fixture-invalid-foreign-usage", thread=thread, turn=turn),
+                           usage_notification(None, thread=thread, turn=turn), missing])
         self.configure(events=[*events, item(), completed()])
         code, result, _ = self.invoke()
         self.assertEqual(0, code, result)
@@ -622,6 +667,22 @@ class CodexProtocolTests(unittest.TestCase):
         self.assertFalse(result["needs_attention"])
         self.assertEqual(related, result["usage"])
         self.assertEqual([], result.get("measurement_errors", []))
+
+    def test_foreign_usage_cannot_clear_related_measurement_warnings(self):
+        related = {"last": {**COUNTS, "inputTokens": -1}, "total": COUNTS, "modelContextWindow": False}
+        foreign = {"last": COUNTS, "total": COUNTS, "modelContextWindow": 1000}
+        events = [usage_notification(related)]
+        events.extend(usage_notification(foreign, thread=thread, turn=turn)
+                      for thread, turn in ((OTHER_THREAD, TURN), (THREAD, OTHER_TURN)))
+        self.configure(events=[*events, item(), completed()])
+        code, result, _ = self.invoke()
+        self.assertEqual(0, code, result)
+        self.assertEqual(ANSWER, result["result"])
+        self.assertFalse(result["needs_attention"])
+        self.assertEqual({"last": {**COUNTS, "inputTokens": None}, "total": COUNTS}, result["usage"])
+        self.assertIsNone(result["model_context_window"])
+        self.assertEqual({"usage.last.inputTokens", "model_context_window"},
+                         set(result["measurement_errors"]))
 
     def test_invalid_usage_does_not_relax_final_answer_or_terminal_identity_requirements(self):
         invalid = usage_notification({"last": {**COUNTS, "inputTokens": -1}, "total": COUNTS})

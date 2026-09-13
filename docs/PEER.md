@@ -245,10 +245,18 @@ subscription charge. Missing measurements remain unknown. Starting in v0.4.6,
 known optional numeric measurements are validated independently of answers and
 control messages. Invalid values become `null`, with bounded field names in
 `measurement_errors`; human output warns that measurement is unavailable.
+Warnings follow the selected measurements: later valid observations replace
+earlier warnings, and unrelated Claude loop metrics do not invalidate the
+retained task's metrics. Earlier observations remain in raw output and, for
+Claude streams, the bounded `native_results` records.
 These warnings alone do not change the task outcome or `needs_attention`.
 Malformed protocol JSON, unverified identities and invalid completion messages
 still prevent accepting a result. Raw native evidence remains private and intact;
 unrecognized native measurement extensions are not certified by this validation.
+Claude receipts retain such extensions; Codex receipts select known counters,
+with extensions retained only in raw output. A Codex usage-update notification
+with no usage object records a measurement warning and unknown current usage,
+not the previous snapshot as if it were current.
 
 Use the stable scope IDs in new receipts rather than matching their explanatory
 prose:

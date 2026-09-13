@@ -17,7 +17,7 @@ import uuid as uuid_module
 
 from .native_io import MAX_OUTPUT, Observation, ProtocolError, decode, identity
 from .native_io import (USAGE_SCOPES, MODEL_USAGE_SCOPES, COST_SCOPES,
-                        claude_measurements, measurement_scope)
+                        claude_measurements, measurement_scope, replace_measurement_errors)
 
 
 _MAX_INPUTS = 128
@@ -299,7 +299,8 @@ class _Driver:
         for item in denials if related else []:
             self.detail(self.denials, {"tool_name": item.get("tool_name") if identity(item.get("tool_name")) else None,
                                        "tool_use_id": item.get("tool_use_id") if identity(item.get("tool_use_id")) else None})
-        measurements = claude_measurements(value, self.envelope)
+        observation = {}
+        measurements = claude_measurements(value, observation)
         origin = value.get("origin")
         origin_kind = origin.get("kind") if isinstance(origin, dict) else None
         record = {"uuid": value["uuid"], "subtype": subtype, "is_error": is_error,
@@ -313,6 +314,8 @@ class _Driver:
                   "result_excerpt_truncated": isinstance(text, str) and len(text) > 2000,
                   "usage_scope": "this native turn", "usage": measurements["usage"],
                   "cumulative_cost_usd": measurements["estimated_cost_usd"]}
+        if observation.get("measurement_errors"):
+            record["measurement_errors"] = observation["measurement_errors"]
         if len(self.results) < _MAX_RESULTS:
             self.results.append(record)
         else:
@@ -325,12 +328,14 @@ class _Driver:
         measurement_scope(self.envelope, "cost_scope", "cumulative_through_latest_native_result", COST_SCOPES)
         self.envelope["model_usage"] = measurements["model_usage"]
         measurement_scope(self.envelope, "model_usage_scope", "native_query_cumulative", MODEL_USAGE_SCOPES)
+        replace_measurement_errors(self.envelope, observation, "estimated_cost_usd", "model_usage")
         if not related:
             # Background/task-notification results can share this session while
             # answering none of our messages. Retain them without routing their
             # answer, errors or terminal status to this call's task.
             return
         self.last_related = record
+        replace_measurement_errors(self.envelope, observation, "usage", "provider_turns", "provider_duration_ms")
         self.failed_related = self.failed_related or is_error or not success
         self.envelope["usage"] = record["usage"]
         measurement_scope(self.envelope, "usage_scope", "latest_related_native_result", USAGE_SCOPES)

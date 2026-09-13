@@ -37,6 +37,20 @@ def measurement_error(envelope, field):
             envelope["measurement_errors_truncated"] = True
 
 
+def replace_measurement_errors(envelope, observation, *fields):
+    """Warnings follow adopted measurements; raw/native records retain history."""
+    def selected(name):
+        return any(name == field or name.startswith(field + ".") for field in fields)
+    retained = [name for name in envelope.get("measurement_errors", []) if not selected(name)]
+    incoming = [name for name in observation.get("measurement_errors", []) if selected(name)]
+    if retained or incoming:
+        envelope["measurement_errors"] = retained
+        for name in incoming:
+            measurement_error(envelope, name)
+    else:
+        envelope.pop("measurement_errors", None)
+
+
 def measurement_number(value, envelope, field, *, integer=False):
     if value is None:
         return None

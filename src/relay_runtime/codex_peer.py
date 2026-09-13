@@ -13,7 +13,8 @@ import subprocess
 import time
 
 from .native_io import MAX_OUTPUT as _MAX_OUTPUT, Observation, ProtocolError as _ProtocolError, decode, identity as _identity
-from .native_io import USAGE_SCOPES, measurement_error, measurement_number, measurement_fields, measurement_scope
+from .native_io import (USAGE_SCOPES, measurement_error, measurement_number,
+                        measurement_fields, measurement_scope, replace_measurement_errors)
 
 
 _MAX_PENDING = 128
@@ -305,9 +306,9 @@ class _Driver:
         elif method == "thread/tokenUsage/updated":
             usage = params.get("tokenUsage")
             names = ("inputTokens", "outputTokens", "cachedInputTokens", "reasoningOutputTokens", "totalTokens")
+            replace_measurement_errors(self.envelope, {}, "usage", "model_context_window")
             if not isinstance(usage, dict):
-                if usage is not None:
-                    measurement_error(self.envelope, "usage")
+                measurement_error(self.envelope, "usage")
                 self.envelope["usage"] = None
                 self.envelope["model_context_window"] = None
             else:
