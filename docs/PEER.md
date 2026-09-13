@@ -93,13 +93,16 @@ I authorize one native peer call through my existing provider installation and
 access, sharing only the repository code and context needed for this review,
 with its normal provider usage. Keep existing sign-in, trust and permission rules.
 
-Give the peer this task: choose one documented command or feature and trace it
-through its implementation and existing tests. Review only those relevant files.
-Return up to three concrete defects or documentation mismatches, with file/line
-evidence and why they matter, or explicitly report no material findings. State
-what you inspected and any uncertainty. Do not edit project files, run programs
-from the project, install anything, invoke another peer, commit, publish, or
-acquire/release claims or acknowledge handoffs.
+Give the peer my current unresolved project change or question, its intended
+result and acceptance criteria, and the exact revision or relevant working-tree
+diff. Limit inspection to the files and existing tests needed to assess that
+scope. If I have no unresolved project task, choose one documented command or
+feature and trace its implementation and existing tests.
+Answer the question and return up to three concrete defects or documentation
+mismatches, with file/line evidence and why they matter, or explicitly report no
+material findings. State what you inspected and any uncertainty. Do not edit
+project files, run programs from the project, install anything, invoke another
+peer, commit, publish, or acquire/release claims or acknowledge handoffs.
 
 Use the installed ~/.local/bin/multithread peer command with a small task file
 or stdin; ~/.local/bin/relay is compatible on older installations. Private local
@@ -115,10 +118,10 @@ and a completed review. Do not infer completion from exit status or returned
 text, widen permissions, or automatically retry an uncertain call.
 ```
 
-A useful first result names the reviewed feature, returns an evidence-backed
-assessment, and shows how the initiating agent checked it. “No material findings”
-can satisfy the review if the scope was actually inspected. A denied tool or
-missing observation remains visible; useful partial findings can be assessed
+A useful first result names the reviewed question or feature, returns an
+evidence-backed assessment, and shows how the initiating agent checked it.
+“No material findings” can satisfy the review if the scope was actually inspected.
+A denied tool or missing observation remains visible; useful partial findings can be assessed
 without claiming the whole review completed. This task needs no claim or test
 handoff, and it does not itself verify hook delivery or a ledger workflow.
 
@@ -190,6 +193,7 @@ task, and an unavailable peer does not itself justify changing approval policy.
 | `session_id` | The verified native session identity: a UUID for Claude, an opaque native thread ID for Codex. Claude's requested UUID is recorded before launching; Codex assigns a fresh thread ID during initialization. Resume always targets the exact supplied identity. |
 | `requested_session_id` | The requested identity, when known before launch. It remains unverified until native output confirms it. A missing verified `session_id` does not prove that no session started; the requested identity alone is not a resume instruction. |
 | `observed_session_id` | If present on an identity mismatch, the unverified native identity reported by the provider. It is diagnostic, not a resume instruction; inspect the retained raw output. |
+| `resumed` | Whether this call requested resume (`true`) or a fresh session (`false`), not independent proof of restored history or a cache hit. |
 | `relay_acknowledgement`, `workflow_completion` | Always `not_checked` by the helper. Inspect actual ledger state and artifacts separately. |
 
 Each call retains a private directory containing its request, task, native
@@ -237,8 +241,31 @@ background operation completed.
 
 The response includes measured call duration and provider-reported usage/turns
 when available. `estimated_cost_usd` is a provider estimate, not an observed
-subscription charge. Missing measurements remain unknown. These measurements
-do not establish net token savings or broad reliability.
+subscription charge. Missing measurements remain unknown. Starting in v0.4.6,
+known optional numeric measurements are validated independently of answers and
+control messages. Invalid values become `null`, with bounded field names in
+`measurement_errors`; human output warns that measurement is unavailable.
+These warnings alone do not change the task outcome or `needs_attention`.
+Malformed protocol JSON, unverified identities and invalid completion messages
+still prevent accepting a result. Raw native evidence remains private and intact;
+unrecognized native measurement extensions are not certified by this validation.
+
+Use the stable scope IDs in new receipts rather than matching their explanatory
+prose:
+
+| Measurement | Scope ID and interpretation |
+|---|---|
+| Claude `usage`, ordinary call | `usage_scope_id: native_main_loop` — this query's main loop, excluding subagents. |
+| Claude `usage`, live-input call | `usage_scope_id: latest_related_native_result` — the latest result answering this call's input, not a sum of the stream. |
+| Claude `model_usage` | `model_usage_scope_id: native_query_cumulative` — latest reported query totals by model, including native subagents and compaction; not every provider helper call. Available in ordinary and live-input receipts. |
+| Claude `estimated_cost_usd` | `cost_scope_id: cumulative_through_latest_native_result` — latest reported cumulative estimate, including background results in a stream. Do not add successive snapshots or treat it as billing. |
+| Codex `usage.last` / `usage.total` | `usage_scope_id: native_thread_last_and_total` — native last-request and running thread totals, not incremental usage of this Multithread call. `model_context_window` is separately reported when available. |
+
+Provider-native counters can overlap; do not add every field into a total.
+Resuming does not turn these measurements into whole-conversation accounting.
+The [Claude accounting reference](https://code.claude.com/docs/en/agent-sdk/cost-tracking)
+explains its query and stream scopes. These measurements do not establish net
+token savings, subscription-quota consumption or broad reliability.
 
 ## Prepare a support report from an existing call
 
@@ -264,14 +291,16 @@ errors/denials/unsupported native requests and stdout observation limits.
 Starting a provider does not establish task submission. Codex records whether
 submission was requested or accepted; an absent observation remains `not_recorded`.
 Missing measurements are JSON `null`, not zero. Invalid auxiliary provider
-metrics also become `null` and are named in `invalid_measurements`; the known
-call outcome remains available. Invalid JSON or required call fields still
+metrics also become `null`; `invalid_measurements` includes safe categories
+recorded by measurement validation, without copying bad values or model names.
+The known call outcome remains available. Invalid JSON or required call fields still
 prevent reporting rather than producing a guessed outcome.
-Counts refer to the retained lists, which may already be bounded. Known recorded
-scope labels distinguish the latest related native result from cumulative cost
-through the latest native result, including background results. Other scopes
-remain `unknown`; do not treat those measurements as whole-call totals or sum
-cumulative values. No cost estimate establishes actual billing.
+Counts refer to the retained lists, which may already be bounded. The report
+recognizes the usage and cost scope IDs above; older receipts remain readable
+through their known prose labels. An explicit unrecognized ID stays `unknown`,
+even if its prose resembles a known scope. Missing scope remains unknown; do not
+treat those measurements as whole-call totals or sum cumulative values.
+No cost estimate establishes actual billing.
 
 `report_state: reported` and exit 0 mean a report was produced, even when
 `call.state` is `uncertain` or `provider_error`. Otherwise exit 1 and
@@ -302,21 +331,43 @@ before sharing through the [support route](SUPPORT.md#useful-safe-support-inform
 ## Follow up in the same native session
 
 After assessing the previous result, choose whether further provider usage is
-warranted and authorized. Use the exact returned native session identity and
-the same checkout for a deliberate follow-up. Claude uses a session UUID:
+warranted and authorized. Resume when the prior investigation helps answer the
+remaining question; start fresh when independent judgment or a different scope
+is more useful. Use the exact verified `session_id` and the same checkout for a
+deliberate resume. Claude uses a session UUID:
 
 ```sh
 ~/.local/bin/multithread peer claude --repo /absolute/enrolled/reviewer-checkout \
-  --resume <exact-session-uuid> --task-file follow-up.txt --json
+  --resume <exact-session-uuid> --task-file follow-up.txt \
+  --output-dir /absolute/private/new-peer-follow-up --json
 ```
 
 For Codex, select `codex` and pass its returned `session_id`
 unchanged to `--resume`. Treat that thread ID as opaque; do not convert it to a
 UUID or substitute `native_session_id`.
 
+Keep a concise continuation packet in the task's existing private record. After
+checking the prior outcome and session ownership, use it to write `follow-up.txt`:
+
+```text
+Provider and verified session_id: <provider> / <identity from prior result.json>
+Same enrolled checkout: <absolute checkout path>
+Prior receipt and outcome: <private result.json path; state and any partial work>
+Accepted findings: <independently checked findings and rationale>
+Changed source/evidence: <new revision or diff; relevant new observations>
+Remaining question and acceptance criteria: <what this contribution must resolve>
+Authorized scope and limits: <permitted inspection/actions and explicit exclusions>
+```
+
+Use a new `--output-dir` for each call to retain its evidence durably; an existing
+directory is refused. Preserve ordinary authorization, sign-in, trust and
+permissions. Possessing a session identity does not authorize taking it over.
 There is no latest-session lookup or automatic concurrent resume. A fresh call
-without `--resume` creates a fresh session. A resume must be a deliberate choice
-after checking the previous outcome, including any partial work.
+without `--resume` creates a fresh session.
+
+The peer process can end while the provider keeps the native conversation.
+History retention, compaction and prompt caching remain provider behavior;
+resume does not guarantee a cache hit or unchanged context.
 
 ## Update a running peer
 

@@ -1,16 +1,100 @@
 """Bounded private observation of one owned native provider's stdout.
 
-The caller owns the process, its argv and its termination. This observer owns
-only the raw capture, its digest and the strict JSONL decoding both peer
-drivers share, so a terminal native outcome survives that owned cleanup.
+The caller owns the process, its argv and its termination. Shared observation
+handles raw capture, strict JSONL decoding and optional measurement validation,
+so a terminal native outcome survives independent recording/measurement faults.
 """
 
 import hashlib
 import json
+import math
 import os
 
 
 MAX_OUTPUT = 16 * 1024 * 1024
+
+# Stable identifiers are the machine contract; prose remains for older readers.
+USAGE_SCOPES = {
+    "native_main_loop": "this native query's main loop; excludes subagents",
+    "latest_related_native_result": "latest related native result; main loop only, not the whole call",
+    "native_thread_last_and_total": "native thread's last request and running totals; not this call's incremental usage",
+}
+MODEL_USAGE_SCOPES = {
+    "native_query_cumulative": "latest cumulative query-stream totals; includes native subagents and compaction, not all provider helper calls",
+}
+COST_SCOPES = {
+    "cumulative_through_latest_native_result": "cumulative through the latest native result; an estimate, not billing",
+}
+
+
+def measurement_error(envelope, field):
+    """Keep bounded field names, never bad native values or model identities."""
+    errors = envelope.setdefault("measurement_errors", [])
+    if field not in errors:
+        if len(errors) < 32:
+            errors.append(field)
+        else:
+            envelope["measurement_errors_truncated"] = True
+
+
+def measurement_number(value, envelope, field, *, integer=False):
+    if value is None:
+        return None
+    if (type(value) not in ((int,) if integer else (int, float))
+            or value < 0 or value > 2**53 - 1 or not math.isfinite(value)):
+        measurement_error(envelope, field)
+        return None
+    return value
+
+
+def measurement_fields(value, envelope, field, names, *, missing=False, costs=()):
+    """Qualify known counters; retain uninterpreted native extensions privately."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        measurement_error(envelope, field)
+        return None
+    result = dict(value)
+    for name in names:
+        if missing or name in value:
+            result[name] = measurement_number(value.get(name), envelope, field + "." + name,
+                                              integer=name not in costs)
+    return result
+
+
+def claude_measurements(value, envelope):
+    """Optional metadata cannot reject an independently attributed native answer."""
+    usage = measurement_fields(value.get("usage"), envelope, "usage", (
+        "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+    if usage is not None:
+        for name, fields in (
+            ("cache_creation", ("ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens")),
+            ("output_tokens_details", ("thinking_tokens",)),
+            ("server_tool_use", ("web_search_requests", "web_fetch_requests")),
+        ):
+            if name in usage:
+                usage[name] = measurement_fields(usage[name], envelope, "usage." + name, fields)
+    models = value.get("modelUsage")
+    if models is not None:
+        if not isinstance(models, dict):
+            measurement_error(envelope, "model_usage")
+            models = None
+        else:
+            models = {name: measurement_fields(counts, envelope, "model_usage.model", (
+                "inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens",
+                "webSearchRequests", "costUSD", "contextWindow", "maxOutputTokens"), costs=("costUSD",))
+                      for name, counts in models.items()}
+    return {
+        "usage": usage, "model_usage": models,
+        "provider_turns": measurement_number(value.get("num_turns"), envelope, "provider_turns", integer=True),
+        "provider_duration_ms": measurement_number(value.get("duration_ms"), envelope, "provider_duration_ms", integer=True),
+        "estimated_cost_usd": measurement_number(value.get("total_cost_usd"), envelope, "estimated_cost_usd"),
+    }
+
+
+def measurement_scope(envelope, field, identifier, scopes):
+    envelope[field + "_id"] = identifier
+    envelope[field] = scopes[identifier]
 
 
 class ProtocolError(Exception):
