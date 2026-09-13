@@ -14,6 +14,7 @@ import math
 import os
 from pathlib import Path
 import platform
+import selectors
 import shlex
 import shutil
 import signal
@@ -327,21 +328,50 @@ class _WaitingFeedback:
             self.disabled = True
 
 
-def _communicate(process, task, timeout, feedback):
-    """Wait in slices without resubmitting stdin or renewing the call deadline."""
+def _call_final_json(process, task, timeout, feedback):
+    """Deliver stdin once, then wait; output already goes to evidence files.
+
+    Retrying communicate(input=None) can leave a partially written input pipe
+    open on supported Python versions. Own the small nonblocking write here,
+    as the streaming drivers do, without accessing Popen's private buffers.
+    """
     deadline = time.monotonic() + timeout
-    pending = task
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
+
+    def remaining():
+        allowance = deadline - time.monotonic()
+        if allowance <= 0:
             raise subprocess.TimeoutExpired(process.args, timeout)
+        return min(allowance, _WAIT_FEEDBACK_SECONDS)
+
+    try:
+        os.set_blocking(process.stdin.fileno(), False)
+        pending = memoryview(task)
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdin, selectors.EVENT_WRITE)
+            while pending:
+                feedback()
+                if not selector.select(remaining()):
+                    continue
+                try:
+                    written = os.write(process.stdin.fileno(), pending)
+                except BlockingIOError:
+                    continue
+                if written <= 0:
+                    raise BrokenPipeError()
+                pending = pending[written:]
+    except BrokenPipeError:
+        # Like communicate(), allow an early native refusal to be interpreted
+        # from its output rather than replacing it with a pipe diagnostic.
+        pass
+    finally:
+        process.stdin.close()
+    while True:
+        feedback()
         try:
-            return process.communicate(input=pending, timeout=min(remaining, _WAIT_FEEDBACK_SECONDS))
+            return process.wait(timeout=remaining())
         except subprocess.TimeoutExpired:
-            pending = None  # Popen retains any partially written input between waits.
             if time.monotonic() >= deadline:
                 raise
-            feedback()
 
 
 def _wait(process, timeout, observer=None, feedback=None):
@@ -645,7 +675,7 @@ def _run_peer(args, interruption):
                 envelope.update(state="uncertain", provider_started=True)
                 stage = "provider_call"
                 if not streaming:
-                    _communicate(process, task, args.timeout, feedback)
+                    _call_final_json(process, task, args.timeout, feedback)
                 else:
                     driver.run(process, task, plan["repo"], args.resume,
                                directory, envelope, args.timeout, control=ObservedControl(control, envelope), observer=observer,
