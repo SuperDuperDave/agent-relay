@@ -198,7 +198,7 @@ task, and an unavailable peer does not itself justify changing approval policy.
 | `requested_session_id` | The requested identity, when known before launch. It remains unverified until native output confirms it. A missing verified `session_id` does not prove that no session started; the requested identity alone is not a resume instruction. |
 | `observed_session_id` | If present on an identity mismatch, the unverified native identity reported by the provider. It is diagnostic, not a resume instruction; inspect the retained raw output. |
 | `resumed` | Whether this call requested resume (`true`) or a fresh session (`false`), not independent proof of restored history or a cache hit. |
-| `task_delivery`, `native_input_unwritten_bytes` | When recorded, whether the task was fully written to the native input pipe and how many bytes remained unwritten. A complete pipe write does not prove native consumption. Missing fields remain unknown. |
+| `task_delivery`, `native_input_unwritten_bytes` | When recorded, the task's pipe-write observation and the native input queue's remaining byte count. Count scope depends on capture mode; zero does not establish full task delivery. A complete pipe write does not prove native consumption. Missing fields remain unknown. |
 | `relay_acknowledgement`, `workflow_completion` | Always `not_checked` by the helper. Inspect actual ledger state and artifacts separately. |
 
 Each call retains a private directory containing its request, task, native
@@ -225,6 +225,10 @@ remains `provider_error`; interrupted calls remain uncertain. Inspect the
 unwritten-byte observation and retained work before any follow-up, without
 automatically resending. The support report includes these delivery observations
 without exposing task or answer text.
+For ordinary Claude final-JSON calls, the byte count records initial task bytes
+not written. Streaming Claude records its last serialized outgoing queue, which
+can include follow-up frames or be cleared after input closes. That queue count
+does not substitute for the separate `task_delivery` observation.
 Keep these files private: native output and task text can contain sensitive
 project information. Nothing is uploaded or published by Multithread's recorder.
 `stdout_observation` records the byte count and SHA-256 of observed stdout.

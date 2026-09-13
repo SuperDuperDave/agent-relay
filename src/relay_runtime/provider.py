@@ -1007,7 +1007,7 @@ def report_main(argv=None):
                 f"; {observation['bytes']} bytes; truncated={str(observation['truncated']).lower()}; scope={observation['scope']}"
                 if observation["status"] == "recorded" else "; byte count unknown"))
             print("Recorded session identity: " + call["session_identity"] + " (identifiers omitted)")
-            print("Task pipe delivery: " + call["task_delivery"] + "; unwritten bytes: "
+            print("Task pipe delivery: " + call["task_delivery"] + "; recorded native-input pending bytes (mode-dependent): "
                   + str(call["native_input_unwritten_bytes"] if call["native_input_unwritten_bytes"] is not None else "unknown")
                   + "; a pipe write does not prove native consumption.")
         print("Retained receipt only: provider activity, cause and workflow completion are not checked.")

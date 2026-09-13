@@ -383,7 +383,7 @@ class PeerReportTests(unittest.TestCase):
                 self.assertEqual("not_checked", call["workflow_completion"])
                 code, output = self.invoke(structured=False)
                 self.assertEqual(0, code)
-                self.assertIn("Task pipe delivery: written; unwritten bytes: 0", output)
+                self.assertIn("Task pipe delivery: written; recorded native-input pending bytes (mode-dependent): 0", output)
                 self.assertIn("a pipe write does not prove native consumption", output)
 
     def test_partial_task_delivery_remains_visible_without_disclosing_unrelated_answers(self):
@@ -401,7 +401,7 @@ class PeerReportTests(unittest.TestCase):
                 self.assertNotIn("native_results", call)
                 code, output = self.invoke(structured=False)
                 self.assertEqual(0, code)
-                self.assertIn("Task pipe delivery: uncertain; unwritten bytes: 17", output)
+                self.assertIn("Task pipe delivery: uncertain; recorded native-input pending bytes (mode-dependent): 17", output)
 
     def test_legacy_delivery_observation_stays_unrecorded_and_null_bytes_stay_unknown(self):
         for observation in ({}, {"native_input_unwritten_bytes": None}):
@@ -411,7 +411,7 @@ class PeerReportTests(unittest.TestCase):
                 self.assertIsNone(call["native_input_unwritten_bytes"])
                 code, output = self.invoke(structured=False)
                 self.assertEqual(0, code)
-                self.assertIn("Task pipe delivery: not_recorded; unwritten bytes: unknown", output)
+                self.assertIn("Task pipe delivery: not_recorded; recorded native-input pending bytes (mode-dependent): unknown", output)
 
     def test_unknown_delivery_values_are_normalized_without_leaking_private_text(self):
         for delivery in (CANARY, None, False, [], {}):
@@ -422,7 +422,7 @@ class PeerReportTests(unittest.TestCase):
                 self.assertEqual("returned", call["state"])
                 code, output = self.invoke(structured=False)
                 self.assertEqual(0, code)
-                self.assertIn("Task pipe delivery: unknown; unwritten bytes: unknown", output)
+                self.assertIn("Task pipe delivery: unknown; recorded native-input pending bytes (mode-dependent): unknown", output)
 
     def test_repo_selector_is_accepted_without_enrollment_or_provider_access(self):
         self.write(self.receipt())
