@@ -444,6 +444,7 @@ def _send(files, call, args):
 
 
 def control_main(argv=None):
+    from .provider import _display_command, _display_text
     parser = argparse.ArgumentParser(prog="multithread peer control", description=(
         "Send input to an owned peer or inspect its private receipt. Codex targets an exact active turn; "
         "opted-in Claude calls accept session input that may start a later turn. Exit: 0 accepted/consumed/status; "
@@ -492,7 +493,7 @@ def control_main(argv=None):
                           detail=detail + " Target metadata is an observation, not proof that its owner is still running.")
         elif args.command == "send":
             result.update(session_id=args.session, turn_id=args.turn)
-            print("multithread peer input: request " + args.request_id + "; call directory " + str(files.directory)
+            print("multithread peer input: request " + args.request_id + "; call directory " + _display_text(files.directory)
                   + "; submission not yet verified", file=sys.stderr, flush=True)
             result.update(_send(files, call, args))
         else:
@@ -507,10 +508,12 @@ def control_main(argv=None):
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
     else:
         print("Peer input: " + result["state"])
-        print(result.get("detail", "Inspect the private call evidence."))
-        for key in ("call_id", "request_id", "session_id", "turn_id", "inspect_command"):
+        print(_display_text(result.get("detail", "Inspect the private call evidence.")))
+        for key in ("call_id", "request_id", "session_id", "turn_id"):
             if key in result:
-                print(key.replace("_", " ").capitalize() + ": " + str(result[key]))
+                print(key.replace("_", " ").capitalize() + ": " + _display_text(result[key]))
+        if "inspect_argv" in result:
+            _display_command("Inspect command", result["inspect_argv"])
         if "target" in result:
             print("Target: " + json.dumps(result["target"], sort_keys=True))
     return 0 if result["state"] in {"accepted", "consumed", "open", "closed"} else 2 if result["state"] == "pending" else 1

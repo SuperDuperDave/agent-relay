@@ -82,7 +82,7 @@ The [strict suite](CI.md) checks the full local acceptance contract. Both use
 disposable fixtures without enrolling this checkout or enabling provider hooks.
 For an installed command, start with `~/.local/bin/multithread runtime status`, using
 the exact launcher path printed during installation if it differs. Project
-status requires the separately [initialized repository](engineering/INSTALLATION.md#choose-and-initialize-a-repository).
+status requires an [enrolled repository](SETUP.md#check-readiness-or-enroll-another-project).
 
 | Observation | Meaning and next action |
 |---|---|
@@ -90,7 +90,8 @@ status requires the separately [initialized repository](engineering/INSTALLATION
 | Operation not permitted during namespace setup | A kernel, LSM or container policy may deny the requested namespaces. Preserve the error category and investigate that environment. Do not disable host protections globally to obtain a pass. |
 | Tests skipped, zero discovered, or fewer run than discovered | The strict acceptance gate must fail. Read the test diagnostics and fix the cause; do not relabel the reduced run as complete coverage. |
 | Landlock or creation-time evidence unavailable | The installed write boundary cannot be established on that profile. Use a verified environment/filesystem; there is no permissive fallback. |
-| Unenrolled or ambiguous repository | Follow [explicit initialization](engineering/INSTALLATION.md#choose-and-initialize-a-repository) for a new chosen repository. Preserve existing state when identity is ambiguous; do not forge markers or delete state to bypass a refusal. |
+| Intended repository is unenrolled | Run `~/.local/bin/multithread setup --repo /absolute/checkout --apply` to explicitly enroll it and check readiness, using the exact installed launcher path if it differs. Follow the reported next actions and [readiness guide](SETUP.md#check-readiness-or-enroll-another-project). |
+| Repository identity is ambiguous or state is inaccessible | Preserve existing state and inspect the reported refusal; unavailable state does not mean an unenrolled repository. Follow [initialization boundaries](engineering/INSTALLATION.md#choose-and-initialize-a-repository); do not forge markers or overwrite or delete state to bypass a refusal. |
 | Initialized repository moved on the same filesystem | Stop all its Multithread users and follow [explicit rebind](engineering/REBIND.md). The original physical objects must remain; copied/restored ledgers and cross-filesystem migration are unsupported. |
 | Interrupted rebind or inconsistent transition history | Preserve retained records. Only a valid unfinished transition to its exact pinned target is retryable; malformed, conflicting or incomplete history remains blocked without pruning. |
 | Unknown multithread/relay command, changed selector or uncertain install | Preserve existing files and inspect using a separately reviewed bootstrap. Use fresh exact observations, not deletion or blind retry. |

@@ -39,8 +39,8 @@ class CodexCleanupTests(unittest.TestCase):
         self.executable(self.provider, source.split("\n", 1)[1])
 
     @staticmethod
-    def quick_wait(process, timeout, observer=None):
-        return CodexCleanupTests.original_wait(process, min(timeout, 0.2), observer)
+    def quick_wait(process, timeout, observer=None, feedback=None):
+        return CodexCleanupTests.original_wait(process, min(timeout, 0.2), observer, feedback)
 
     original_wait = staticmethod(peer._wait)
 

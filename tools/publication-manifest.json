@@ -29,6 +29,7 @@
     "docs/engineering/public-provider-hook-result.json",
     "docs/engineering/public-runtime-result.json",
     "docs/engineering/public-uninstall-result.json",
+    "docs/examples/PEER-REVIEW.md",
     "examples/call_peer.py",
     "examples/demo_scenario.py",
     "examples/launch_provider.py",

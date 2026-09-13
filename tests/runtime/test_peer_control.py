@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import stat
 import subprocess
 import sys
@@ -49,6 +50,7 @@ class PeerControlTests(unittest.TestCase):
               mock.patch.object(control.sys, "stdin", mock.Mock(buffer=io.BytesIO(stdin or b"")))):
             code = control.control_main(arguments)
         self.assertTrue(output.getvalue(), errors.getvalue())
+        self.last_diagnostic = errors.getvalue()
         return code, json.loads(output.getvalue()) if json_output else output.getvalue()
 
     def unadvertised_call(self, provider):
@@ -93,6 +95,36 @@ class PeerControlTests(unittest.TestCase):
         self.assertEqual(0o700, self.control_dir.stat().st_mode & 0o777)
         for path in self.control_dir.rglob("*"):
             self.assertEqual(0o700 if path.is_dir() else 0o600, path.stat().st_mode & 0o777)
+
+    def test_unusual_command_paths_are_terminal_safe_and_keep_exact_machine_arguments(self):
+        self.owner.close("Switching to a fixture with terminal controls in its directory name.")
+        self.directory = self.base / "evidence\n\x1b[31m\r\u202ename"
+        self.directory.mkdir(mode=0o700)
+        self.owner = control.CallControl(self.directory, "codex")
+        self.owner.set_target(SESSION, TURN)
+        launcher = "/tmp/launcher\n\x1b[31m\u202ename"
+        identifier = str(uuid.uuid4())
+        expected = [launcher, "peer", "control", "receipt", "--call-dir", str(self.directory),
+                    "--request-id", identifier, "--json"]
+        with mock.patch("relay_runtime.account_launcher", return_value=Path(launcher)):
+            _, (code, result) = self.send(identifier)
+            self.assertEqual(2, code, result)
+            self.assertEqual(str(self.directory), result["call_directory"])
+            self.assertEqual(expected, result["inspect_argv"])
+            self.assertEqual(expected, shlex.split(result["inspect_command"]))
+            self.assertEqual(1, len(self.last_diagnostic.splitlines()))
+            for character in ("\x1b", "\r", "\u202e"):
+                self.assertNotIn(character, self.last_diagnostic)
+            human_code, output = self.invoke("receipt", "--request-id", identifier, json_output=False)
+        self.assertEqual(2, human_code)
+        for character in ("\x1b", "\r", "\u202e"):
+            self.assertNotIn(character, output)
+        command = next(line.split(": ", 1)[1] for line in output.splitlines()
+                       if line.startswith("Inspect command (JSON argv): "))
+        self.assertEqual(expected, json.loads(command))
+        pending = self.owner.pending()
+        self.assertEqual([identifier], [request["request_id"] for request in pending])
+        self.assertEqual(self.message.read_text(), pending[0]["text"])
 
     def test_open_mailbox_without_a_target_reports_not_advertised_and_refuses_input(self):
         for provider in ("codex", "claude"):

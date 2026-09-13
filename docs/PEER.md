@@ -157,12 +157,16 @@ Task text goes through stdin as data, never shell evaluation or command-line
 prompt interpolation. Use `--task-file -` to supply it from stdin directly.
 
 The task limit is 64 KiB. Larger artifacts belong in the repository and can be
-referenced by the task. The default timeout is 600 seconds; use `--timeout` to
-adjust it for the work. Multithread imposes no native turn cap by default. Supply
-`--max-turns` for an explicit Claude turn limit. Codex performs one native turn
+referenced by the task. The default timeout is 600 seconds; use `--timeout`
+with an integer from 1 through 3600 seconds to adjust it for the work.
+Multithread imposes no native turn cap by default. Supply `--max-turns` with an
+integer from 1 through 3600 for an explicit Claude turn limit. Codex performs one native turn
 with its normal tool loop. Choose bounds proportionate
 to the task so the peer has time to inspect evidence and produce a useful
 answer. Multithread makes one invocation and never automatically retries it.
+
+For a concrete example of a review contribution and its limits, see
+[a peer review that improved v0.4.6](examples/PEER-REVIEW.md).
 
 Normal permission rules remain in force. When a tool needs approval that this
 noninteractive call cannot obtain, Claude denies it and reports the denial.
@@ -194,6 +198,7 @@ task, and an unavailable peer does not itself justify changing approval policy.
 | `requested_session_id` | The requested identity, when known before launch. It remains unverified until native output confirms it. A missing verified `session_id` does not prove that no session started; the requested identity alone is not a resume instruction. |
 | `observed_session_id` | If present on an identity mismatch, the unverified native identity reported by the provider. It is diagnostic, not a resume instruction; inspect the retained raw output. |
 | `resumed` | Whether this call requested resume (`true`) or a fresh session (`false`), not independent proof of restored history or a cache hit. |
+| `task_delivery`, `native_input_unwritten_bytes` | When recorded, the task's pipe-write observation and the native input queue's remaining byte count. Count scope depends on capture mode; zero does not establish full task delivery. A complete pipe write does not prove native consumption. Missing fields remain unknown. |
 | `relay_acknowledgement`, `workflow_completion` | Always `not_checked` by the helper. Inspect actual ledger state and artifacts separately. |
 
 Each call retains a private directory containing its request, task, native
@@ -202,6 +207,28 @@ to choose a durable location; an existing directory is refused without changes.
 The default is a retained temporary directory, subject to the OS's cleanup
 policy. Its location is printed before launch, together with Claude's requested
 session UUID or a note that Codex will assign the identity.
+While waiting, the owning call prints a content-free diagnostic to stderr about
+every 30 seconds: elapsed time against the chosen call limit, its observed
+stage, and input availability when known. An advertised input target does not
+establish native acceptance. These messages show that the caller is waiting,
+not that the provider is making progress; silence does not establish a stall.
+The terminal or calling application may buffer or hide stderr. `--json` stdout
+still contains only the final result. Ordinary Claude calls retain their normal
+final-JSON mode; waiting feedback does not inspect native transcripts or change
+permissions, deadlines or retry behavior.
+Where a submission stage is unobserved, the waiting message says so. Ordinary
+Claude calls distinguish writing the task from waiting after a complete pipe
+write. If input closes early, a matching successful native reply cannot establish
+an answer to the complete task: the call is `uncertain`, needs attention and
+retains useful text as `partial_result` and in raw output. A native refusal
+remains `provider_error`; interrupted calls remain uncertain. Inspect the
+unwritten-byte observation and retained work before any follow-up, without
+automatically resending. The support report includes these delivery observations
+without exposing task or answer text.
+For ordinary Claude final-JSON calls, the byte count records initial task bytes
+not written. Streaming Claude records its last serialized outgoing queue, which
+can include follow-up frames or be cleared after input closes. That queue count
+does not substitute for the separate `task_delivery` observation.
 Keep these files private: native output and task text can contain sensitive
 project information. Nothing is uploaded or published by Multithread's recorder.
 `stdout_observation` records the byte count and SHA-256 of observed stdout.

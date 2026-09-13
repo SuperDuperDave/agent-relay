@@ -14,6 +14,7 @@ import math
 import os
 from pathlib import Path
 import platform
+import selectors
 import shlex
 import shutil
 import signal
@@ -283,7 +284,108 @@ def _drain(observer):
         return False
 
 
-def _wait(process, timeout, observer=None):
+_WAIT_FEEDBACK_SECONDS = 30
+
+
+class _WaitingFeedback:
+    """Sparse local observations, never a provider heartbeat or task transcript."""
+
+    def __init__(self, started, timeout, envelope, control):
+        self.started, self.timeout = started, timeout
+        self.envelope, self.control = envelope, control
+        self.next_at = started + _WAIT_FEEDBACK_SECONDS
+        self.disabled = False
+
+    def __call__(self):
+        now = time.monotonic()
+        if self.disabled or now < self.next_at:
+            return
+        self.next_at = now + _WAIT_FEEDBACK_SECONDS
+        if self.envelope.get("state") == "returned":
+            stage = "native return observed; waiting for owned process exit"
+        elif self.envelope.get("task_submission") == "not_submitted":
+            stage = "waiting for native setup; task not submitted"
+        elif self.envelope.get("task_submission") == "requested":
+            stage = "task submission requested; acceptance not yet observed"
+        elif self.envelope.get("task_submission") == "accepted":
+            stage = "waiting for provider return"
+        elif self.envelope.get("task_delivery") == "in_progress":
+            stage = "writing task to provider stdin; consumption unknown"
+        elif self.envelope.get("task_delivery") == "written":
+            stage = "task written to provider stdin; waiting for result; consumption unknown"
+        elif self.envelope.get("task_delivery") == "uncertain":
+            stage = "task delivery incomplete; waiting for provider exit"
+        else:
+            stage = "waiting; submission stage not recorded"
+        if self.control is None:
+            channel = "input not enabled for this call"
+        elif "control_fault" in self.envelope:
+            channel = "input observation unavailable"
+        elif self.control.closed or not self.control.accepting:
+            channel = "input closed"
+        elif self.control.target is None:
+            channel = "input target not advertised"
+        else:
+            channel = "input target advertised; new input acceptance unknown"
+        try:
+            print(f"multithread peer: {stage}; {now - self.started:.0f}s elapsed / "
+                  f"{self.timeout}s call limit; {channel}; provider progress unknown.",
+                  file=sys.stderr, flush=True)
+        except (OSError, UnicodeError, ValueError):
+            # A lost diagnostic sink must not interrupt the owned provider.
+            self.disabled = True
+
+
+def _call_final_json(process, task, timeout, feedback, envelope):
+    """Deliver stdin once, then wait; output already goes to evidence files.
+
+    Retrying communicate(input=None) can leave a partially written input pipe
+    open on supported Python versions. Own the small nonblocking write here,
+    as the streaming drivers do, without accessing Popen's private buffers.
+    """
+    deadline = time.monotonic() + timeout
+    pending = memoryview(task)
+    envelope["task_delivery"] = "in_progress"
+
+    def remaining():
+        allowance = deadline - time.monotonic()
+        if allowance <= 0:
+            raise subprocess.TimeoutExpired(process.args, timeout)
+        return min(allowance, _WAIT_FEEDBACK_SECONDS)
+
+    try:
+        os.set_blocking(process.stdin.fileno(), False)
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdin, selectors.EVENT_WRITE)
+            while pending:
+                feedback()
+                if not selector.select(remaining()):
+                    continue
+                try:
+                    written = os.write(process.stdin.fileno(), pending)
+                except BlockingIOError:
+                    continue
+                if written <= 0:
+                    raise BrokenPipeError()
+                pending = pending[written:]
+    except BrokenPipeError:
+        # Like communicate(), allow an early native refusal to be interpreted
+        # from its output rather than replacing it with a pipe diagnostic.
+        pass
+    finally:
+        envelope["native_input_unwritten_bytes"] = len(pending)
+        envelope["task_delivery"] = "uncertain" if pending else "written"
+        process.stdin.close()
+    while True:
+        feedback()
+        try:
+            return process.wait(timeout=remaining())
+        except subprocess.TimeoutExpired:
+            if time.monotonic() >= deadline:
+                raise
+
+
+def _wait(process, timeout, observer=None, feedback=None):
     if observer is None:
         return process.wait(timeout=timeout)
     deadline = time.monotonic() + timeout
@@ -294,6 +396,8 @@ def _wait(process, timeout, observer=None):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise subprocess.TimeoutExpired(process.args, timeout)
+        if feedback is not None:
+            feedback()
         if not progressed:
             time.sleep(min(0.01, remaining))
 
@@ -445,6 +549,15 @@ def _interpret(directory, envelope):
         envelope["message"] = " ".join(causes) + " Inspect retained output and evidence before continuing."
     else:
         envelope["message"] = "Assess the answer and durable Multithread evidence; a returned turn is not workflow completion."
+    if envelope.get("task_delivery") == "uncertain":
+        envelope["needs_attention"] = True
+        if envelope["state"] == "returned":
+            # Matching session identity cannot attribute an answer to a task
+            # we know was not fully delivered. Keep useful text as partial.
+            envelope["state"] = "uncertain"
+            envelope["partial_result"] = envelope["result"]
+            envelope["result"] = None
+        envelope["message"] += " The task was not fully written to provider stdin; any observed text may answer incomplete or other input. Inspect retained evidence before follow-up."
 
 
 def peer_main(argv=None, *, report_entry=None):
@@ -463,8 +576,8 @@ def peer_main(argv=None, *, report_entry=None):
     parser.add_argument("--task-file", required=True, help="UTF-8 task packet; - reads stdin, at most 64 KiB")
     parser.add_argument("--resume", type=_native_identity, help="exact peer session identity from a previous result; no latest-session lookup")
     parser.add_argument("--output-dir", type=Path, help="new private evidence directory; default: retained temporary directory")
-    parser.add_argument("--timeout", type=_positive, default=600, help="call wall-time limit in seconds (default: 600)")
-    parser.add_argument("--max-turns", type=_positive, help="optional Claude native turn limit; omitted by default")
+    parser.add_argument("--timeout", type=_positive, default=600, help="call wall-time limit in seconds, 1 through 3600 (default: 600)")
+    parser.add_argument("--max-turns", type=_positive, help="optional Claude native turn limit, 1 through 3600; omitted by default")
     parser.add_argument("--live-input", action="store_true", help="enable Claude session input while this call runs; queued input may start later turns within the call timeout. Codex always exposes exact-turn input")
     parser.add_argument("--dry-run", action="store_true", help="validate task/configuration and print a plan; no provider or evidence writes")
     parser.add_argument("--json", action="store_true", help="return a structured result; this DOES launch unless --dry-run is used; exit 0 means a returned turn, so also check needs_attention and task evidence")
@@ -553,8 +666,10 @@ def _run_peer(args, interruption):
             stream.write(task)
         # This durable breadcrumb survives an interrupted caller. Provider stdout
         # and stderr can contain private task context; they are never auto-published.
-        print(f"multithread peer: session {session or 'assigned by provider'}; local evidence {directory}", file=sys.stderr, flush=True)
+        print("multithread peer: session " + _display_text(session or "assigned by provider")
+              + "; local evidence " + _display_text(directory), file=sys.stderr, flush=True)
         started = time.monotonic()
+        feedback = _WaitingFeedback(started, args.timeout, envelope, control)
         from contextlib import nullcontext
         output_context = nullcontext(subprocess.PIPE) if streaming else _private_file(directory, "stdout.json")
         with output_context as output, _private_file(directory, "stderr.txt") as errors:
@@ -580,10 +695,11 @@ def _run_peer(args, interruption):
                 envelope.update(state="uncertain", provider_started=True)
                 stage = "provider_call"
                 if not streaming:
-                    process.communicate(input=task, timeout=args.timeout)
+                    _call_final_json(process, task, args.timeout, feedback, envelope)
                 else:
                     driver.run(process, task, plan["repo"], args.resume,
                                directory, envelope, args.timeout, control=ObservedControl(control, envelope), observer=observer,
+                               feedback=feedback,
                                **({"expected_hook": plan["relay_plan"]["hook_command"]} if args.client == "codex" else {}))
                     # EOF is the ordinary end of this owned stdio server.
                     # Retain a valid returned turn even if server shutdown
@@ -595,7 +711,7 @@ def _run_peer(args, interruption):
                         # deadline. Codex's owned server closes after its turn.
                         grace = (max(0, args.timeout - (time.monotonic() - started))
                                  if args.client == "claude" and observer.interpret else 5)
-                        _wait(process, grace, observer)
+                        _wait(process, grace, observer, feedback)
                     except subprocess.TimeoutExpired:
                         interruption["stopping"] = True
                         _stop(process, observer)
@@ -751,6 +867,10 @@ def _report_projection(record):
     call["task_submission"] = (
         "not_recorded" if "task_submission" not in record else record["task_submission"]
         if record["task_submission"] in ("not_submitted", "requested", "accepted") else "unknown")
+    call["task_delivery"] = (
+        "not_recorded" if "task_delivery" not in record else record["task_delivery"]
+        if record["task_delivery"] in ("written", "uncertain") else "unknown")
+    call["native_input_unwritten_bytes"] = _report_number(record, "native_input_unwritten_bytes", integer=True)
     producer = record.get("producer_runtime")
     producer_status = "not_recorded" if "producer_runtime" not in record else "invalid"
     if isinstance(producer, dict):
@@ -887,6 +1007,9 @@ def report_main(argv=None):
                 f"; {observation['bytes']} bytes; truncated={str(observation['truncated']).lower()}; scope={observation['scope']}"
                 if observation["status"] == "recorded" else "; byte count unknown"))
             print("Recorded session identity: " + call["session_identity"] + " (identifiers omitted)")
+            print("Task pipe delivery: " + call["task_delivery"] + "; recorded native-input pending bytes (mode-dependent): "
+                  + str(call["native_input_unwritten_bytes"] if call["native_input_unwritten_bytes"] is not None else "unknown")
+                  + "; a pipe write does not prove native consumption.")
         print("Retained receipt only: provider activity, cause and workflow completion are not checked.")
         print("Review before sharing. Task/answer text, paths, identities, hashes and native diagnostics are excluded.")
     return 0 if report["report_state"] == "reported" else 1

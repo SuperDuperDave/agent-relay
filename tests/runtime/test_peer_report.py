@@ -27,6 +27,7 @@ CALL_FIELDS = {
     "session_identity", "stdout_observation", "faults", "unavailable_stage",
     "provider_measurement_scope", "cost_scope",
     "task_submission", "unsupported_native_request_count", "invalid_measurements",
+    "task_delivery", "native_input_unwritten_bytes",
     "producer_runtime_identity",
     "hook_delivery", "provider_tools", "relay_acknowledgement", "workflow_completion",
 }
@@ -180,13 +181,14 @@ class PeerReportTests(unittest.TestCase):
         self.assertFalse(call["needs_attention"])
         for key in ("elapsed_seconds", "process_exit_code", "provider_turns", "provider_duration_ms",
                     "estimated_cost_usd", "permission_denial_count", "provider_error_count",
-                    "unsupported_native_request_count"):
+                    "unsupported_native_request_count", "native_input_unwritten_bytes"):
             self.assertIsNone(call[key], key)
         self.assertEqual("unknown", call["actual_billed_cost"])
         self.assertEqual("unknown", call["provider_measurement_scope"])
         self.assertEqual("unknown", call["cost_scope"])
         self.assertEqual("not_recorded", call["session_identity"])
         self.assertEqual("not_recorded", call["task_submission"])
+        self.assertEqual("not_recorded", call["task_delivery"])
         self.assertEqual([], call["invalid_measurements"])
         self.assertEqual({"status": "not_recorded", "bytes": None, "truncated": None,
                           "scope": "unknown"}, call["stdout_observation"])
@@ -246,6 +248,7 @@ class PeerReportTests(unittest.TestCase):
             "provider_errors": [CANARY + "-first-error", CANARY + "-second-error"],
             "unsupported_native_requests": [CANARY + "-native-method"],
             "task_submission": CANARY + "-submission",
+            "task_delivery": CANARY + "-delivery",
             "provider_errors_truncated": True,
             "stdout_observation": {"bytes": 23, "truncated": True, "scope": CANARY + "-scope",
                                    "sha256": CANARY + "-output-digest", "raw": CANARY + "-raw"},
@@ -261,6 +264,7 @@ class PeerReportTests(unittest.TestCase):
         self.assertEqual(2, call["provider_error_count"])
         self.assertEqual(1, call["unsupported_native_request_count"])
         self.assertEqual("unknown", call["task_submission"])
+        self.assertEqual("unknown", call["task_delivery"])
         self.assertEqual("unknown", call["unavailable_stage"])
         self.assertEqual("unknown", call["provider_measurement_scope"])
         self.assertEqual("unknown", call["cost_scope"])
@@ -365,6 +369,60 @@ class PeerReportTests(unittest.TestCase):
         for submission in (CANARY, None, False, [], {}):
             with self.subTest(unknown_submission=submission):
                 self.assertEqual("unknown", self.reported(task_submission=submission)["task_submission"])
+
+    def test_written_task_and_zero_unwritten_bytes_do_not_imply_a_returned_call(self):
+        for client in ("claude", "codex"):
+            with self.subTest(provider=client):
+                call = self.reported(provider=client, state="uncertain", needs_attention=True,
+                                     task_delivery="written", native_input_unwritten_bytes=0)
+                self.assertEqual("written", call["task_delivery"])
+                self.assertEqual(0, call["native_input_unwritten_bytes"])
+                self.assertIsNotNone(call["native_input_unwritten_bytes"])
+                self.assertEqual("uncertain", call["state"])
+                self.assertTrue(call["needs_attention"])
+                self.assertEqual("not_checked", call["workflow_completion"])
+                code, output = self.invoke(structured=False)
+                self.assertEqual(0, code)
+                self.assertIn("Task pipe delivery: written; recorded native-input pending bytes (mode-dependent): 0", output)
+                self.assertIn("a pipe write does not prove native consumption", output)
+
+    def test_partial_task_delivery_remains_visible_without_disclosing_unrelated_answers(self):
+        for client in ("claude", "codex"):
+            with self.subTest(provider=client):
+                call = self.reported(provider=client, state="uncertain", needs_attention=True,
+                    task_delivery="uncertain", native_input_unwritten_bytes=17,
+                    result=CANARY + "-unrelated-answer", partial_result=CANARY + "-partial-answer",
+                    native_results=[{"related": False, "result_excerpt": CANARY + "-native-answer"}])
+                self.assertEqual("uncertain", call["task_delivery"])
+                self.assertEqual(17, call["native_input_unwritten_bytes"])
+                self.assertEqual("uncertain", call["state"])
+                self.assertTrue(call["needs_attention"])
+                self.assertNotIn("result", call)
+                self.assertNotIn("native_results", call)
+                code, output = self.invoke(structured=False)
+                self.assertEqual(0, code)
+                self.assertIn("Task pipe delivery: uncertain; recorded native-input pending bytes (mode-dependent): 17", output)
+
+    def test_legacy_delivery_observation_stays_unrecorded_and_null_bytes_stay_unknown(self):
+        for observation in ({}, {"native_input_unwritten_bytes": None}):
+            with self.subTest(observation=observation):
+                call = self.reported(**observation)
+                self.assertEqual("not_recorded", call["task_delivery"])
+                self.assertIsNone(call["native_input_unwritten_bytes"])
+                code, output = self.invoke(structured=False)
+                self.assertEqual(0, code)
+                self.assertIn("Task pipe delivery: not_recorded; recorded native-input pending bytes (mode-dependent): unknown", output)
+
+    def test_unknown_delivery_values_are_normalized_without_leaking_private_text(self):
+        for delivery in (CANARY, None, False, [], {}):
+            with self.subTest(delivery=delivery):
+                call = self.reported(task_delivery=delivery)
+                self.assertEqual("unknown", call["task_delivery"])
+                self.assertIsNone(call["native_input_unwritten_bytes"])
+                self.assertEqual("returned", call["state"])
+                code, output = self.invoke(structured=False)
+                self.assertEqual(0, code)
+                self.assertIn("Task pipe delivery: unknown; recorded native-input pending bytes (mode-dependent): unknown", output)
 
     def test_repo_selector_is_accepted_without_enrollment_or_provider_access(self):
         self.write(self.receipt())
@@ -535,6 +593,9 @@ class PeerReportTests(unittest.TestCase):
         changes = [
             {"process_exit_code": True}, {"process_exit_code": "0"}, {"process_exit_code": 0.5},
             {"elapsed_seconds": -0.1}, {"elapsed_seconds": True}, {"elapsed_seconds": "2"},
+            {"native_input_unwritten_bytes": -1}, {"native_input_unwritten_bytes": False},
+            {"native_input_unwritten_bytes": True}, {"native_input_unwritten_bytes": 1.5},
+            {"native_input_unwritten_bytes": CANARY}, {"native_input_unwritten_bytes": {}},
             {"permission_denials": {}}, {"permission_denials": [CANARY]},
             {"provider_errors": CANARY}, {"provider_errors": [{"error": CANARY}]},
             {"unsupported_native_requests": CANARY}, {"unsupported_native_requests": [1]},

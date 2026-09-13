@@ -1,6 +1,7 @@
 """Native peer boundaries using disposable executables; no real provider access."""
 
 from contextlib import redirect_stderr, redirect_stdout
+import fcntl
 import hashlib
 import io
 import json
@@ -49,10 +50,13 @@ class PeerTests(unittest.TestCase):
                         f"print({json.dumps(plan)!r})\n")
         self.executable(self.provider, "import json, os, sys, time\nfrom pathlib import Path\n"
                         f"with open({str(self.calls)!r}, 'a') as stream: stream.write('call\\n')\n"
-                        "task = sys.stdin.buffer.read()\n"
+                        f"spec = json.loads(Path({str(self.response)!r}).read_text())\n"
+                        "time.sleep(spec.get('read_delay', 0))\n"
+                        "if spec.get('close_stdin'): os.close(0); task = b''\n"
+                        "elif 'read_bytes' in spec: task = os.read(0, spec['read_bytes']); os.close(0)\n"
+                        "else: task = sys.stdin.buffer.read()\n"
                         f"Path({str(self.base / 'received-task.txt')!r}).write_bytes(task)\n"
                         f"receipt = {{'argv': sys.argv, 'cwd': os.getcwd(), 'pid': os.getpid(), 'pgid': os.getpgrp(), 'env': {{key: os.environ.get(key) for key in {list(self.environment)!r}}}}}\n"
-                        f"spec = json.loads(Path({str(self.response)!r}).read_text())\n"
                         "session_flag = '--resume' if '--resume' in sys.argv else '--session-id'\n"
                         "native = {'type': 'result', 'subtype': 'success', 'is_error': False,\n"
                         "          'session_id': sys.argv[sys.argv.index(session_flag) + 1],\n"
@@ -64,7 +68,7 @@ class PeerTests(unittest.TestCase):
                         "print('artificial provider diagnostic', file=sys.stderr, flush=True)\n"
                         "if spec.get('before_sleep'): print(body, flush=True)\n"
                         f"Path({str(self.receipt)!r}).write_text(json.dumps(receipt))\n"
-                        "if spec.get('sleep'): time.sleep(20)\n"
+                        "time.sleep(spec.get('sleep_seconds', 20 if spec.get('sleep') else 0))\n"
                         "if not spec.get('before_sleep'): print(body, flush=True)\n"
                         "sys.exit(spec.get('exit', 0))\n")
         self.count = 0
@@ -106,6 +110,8 @@ class PeerTests(unittest.TestCase):
                          json.loads((self.base / "relay-argv.json").read_text()))
         self.assertFalse((self.repo / "injected").exists())
         self.assertFalse(result["needs_attention"])
+        self.assertEqual("written", result["task_delivery"])
+        self.assertEqual(0, result["native_input_unwritten_bytes"])
         self.assertEqual("not_checked", result["workflow_completion"])
         evidence = Path(result["evidence_directory"])
         self.assertEqual(task, (evidence / "task.txt").read_bytes())
@@ -129,6 +135,231 @@ class PeerTests(unittest.TestCase):
         self.assertNotIn("--continue", argv)
         self.assertNotIn("--session-id", argv)
         self.assertEqual(self.task.read_bytes(), (self.base / "received-task.txt").read_bytes())
+
+    def test_wait_slices_deliver_partial_stdin_once_and_keep_default_final_json(self):
+        task = ("ARTIFICIAL-PRIVATE-TASK 雪 `touch injected`\n" * 1200).encode()
+        self.assertLess(len(task), 64 * 1024)
+        self.configure(read_delay=0.16, sleep_seconds=0.14,
+                       native={"result": "ARTIFICIAL-PRIVATE-ANSWER"})
+        call_final_json = peer._call_final_json
+
+        def bounded_pipe(process, task, timeout, feedback, envelope):
+            # Force backpressure even on hosts whose ordinary pipe fits 64 KiB.
+            fcntl.fcntl(process.stdin.fileno(), fcntl.F_SETPIPE_SZ, 4096)
+            return call_final_json(process, task, timeout, feedback, envelope)
+
+        with (mock.patch.object(peer, "_WAIT_FEEDBACK_SECONDS", 0.03),
+              mock.patch.object(peer, "_call_final_json", side_effect=bounded_pipe)):
+            code, result, diagnostic = self.invoke("--timeout", "3", stdin=task)
+        self.assertEqual(0, code, result)
+        self.assertEqual("returned", result["state"])
+        self.assertEqual("written", result["task_delivery"])
+        self.assertEqual(0, result["native_input_unwritten_bytes"])
+        self.assertEqual("ARTIFICIAL-PRIVATE-ANSWER", result["result"])
+        self.assertEqual("call\n", self.calls.read_text())
+        self.assertEqual(task, (self.base / "received-task.txt").read_bytes())
+        self.assertFalse((self.repo / "injected").exists())
+        argv = json.loads(self.receipt.read_text())["argv"]
+        self.assertEqual("json", argv[argv.index("--output-format") + 1])
+        self.assertNotIn("--input-format", argv)
+        self.assertNotIn("control", result)
+        lines = diagnostic.splitlines()
+        self.assertGreaterEqual(len(lines), 3)
+        self.assertIn("local evidence", lines[0])
+        writing = "writing task to provider stdin; consumption unknown"
+        waiting = "task written to provider stdin; waiting for result; consumption unknown"
+        self.assertTrue(any(writing in line for line in lines[1:]))
+        self.assertTrue(any(waiting in line for line in lines[1:]))
+        for line in lines[1:]:
+            self.assertTrue(writing in line or waiting in line, line)
+            self.assertNotIn("waiting for provider return", line)
+            self.assertIn("input not enabled for this call", line)
+            self.assertIn("provider progress unknown", line)
+            self.assertNotIn(result["session_id"], line)
+            self.assertNotIn(str(self.repo), line)
+            self.assertNotIn(str(self.provider), line)
+        self.assertNotIn("ARTIFICIAL-PRIVATE", diagnostic)
+        self.assertNotIn("artificial provider diagnostic", diagnostic)
+        self.assertEqual(result, json.loads((Path(result["evidence_directory"]) / "result.json").read_text()))
+
+    def test_task_delivery_and_wait_slices_share_one_call_deadline(self):
+        task = ("ARTIFICIAL-PRIVATE-TASK 雪\n" * 1800).encode()
+        self.configure(read_delay=0.65, sleep_seconds=0.65)
+        call_final_json = peer._call_final_json
+
+        def bounded_pipe(process, task, timeout, feedback, envelope):
+            fcntl.fcntl(process.stdin.fileno(), fcntl.F_SETPIPE_SZ, 4096)
+            return call_final_json(process, task, timeout, feedback, envelope)
+
+        with (mock.patch.object(peer, "_WAIT_FEEDBACK_SECONDS", 0.04),
+              mock.patch.object(peer, "_call_final_json", side_effect=bounded_pipe),
+              mock.patch.object(peer, "_stop", wraps=peer._stop) as stop):
+            code, result, _ = self.invoke("--timeout", "1", stdin=task)
+        self.assertEqual(1, code, result)
+        self.assertEqual("uncertain", result["state"])
+        self.assertEqual("written", result["task_delivery"])
+        self.assertEqual(0, result["native_input_unwritten_bytes"])
+        self.assertIn("timed out", result["message"])
+        self.assertEqual("call\n", self.calls.read_text())
+        self.assertEqual(task, (self.base / "received-task.txt").read_bytes())
+        self.assertLess(result["elapsed_seconds"], 5)
+        stop.assert_called_once()
+
+    def test_early_native_refusal_survives_a_closed_input_pipe(self):
+        self.configure(close_stdin=True, native={"subtype": "error_during_execution", "is_error": True,
+                                                "result": None, "errors": ["Artificial native refusal"]})
+        call_final_json = peer._call_final_json
+
+        def bounded_pipe(process, task, timeout, feedback, envelope):
+            fcntl.fcntl(process.stdin.fileno(), fcntl.F_SETPIPE_SZ, 4096)
+            return call_final_json(process, task, timeout, feedback, envelope)
+
+        with mock.patch.object(peer, "_call_final_json", side_effect=bounded_pipe):
+            code, result, _ = self.invoke(stdin=b"Artificial task\n" * 3000)
+        self.assertEqual(1, code, result)
+        self.assertEqual("provider_error", result["state"])
+        self.assertEqual("uncertain", result["task_delivery"])
+        self.assertGreater(result["native_input_unwritten_bytes"], 0)
+        self.assertEqual(result["requested_session_id"], result["session_id"])
+        self.assertEqual(["Artificial native refusal"], result["provider_errors"])
+        self.assertEqual(0, result["process_exit_code"])
+        self.assertIsNone(result["result"])
+        self.assertNotIn("unavailable_stage", result)
+        self.assertEqual("call\n", self.calls.read_text())
+        self.assertEqual(b"", (self.base / "received-task.txt").read_bytes())
+        self.assertEqual(result, json.loads((Path(result["evidence_directory"]) / "result.json").read_text()))
+
+    def test_partial_task_followed_by_native_success_retains_an_uncertain_answer(self):
+        task = b"Artificial partial task\n" * 2200
+        self.configure(read_bytes=1)
+        call_final_json = peer._call_final_json
+        capacity = []
+
+        def bounded_pipe(process, task, timeout, feedback, envelope):
+            capacity.append(fcntl.fcntl(process.stdin.fileno(), fcntl.F_SETPIPE_SZ, 4096))
+            return call_final_json(process, task, timeout, feedback, envelope)
+
+        with mock.patch.object(peer, "_call_final_json", side_effect=bounded_pipe):
+            code, result, _ = self.invoke(stdin=task)
+        self.assertEqual(1, code, result)
+        self.assertEqual("uncertain", result["state"])
+        self.assertTrue(result["needs_attention"])
+        self.assertEqual("uncertain", result["task_delivery"])
+        self.assertEqual(len(task) - capacity[0], result["native_input_unwritten_bytes"])
+        self.assertEqual(result["requested_session_id"], result["session_id"])
+        self.assertEqual(0, result["process_exit_code"])
+        self.assertEqual("success", result["provider_subtype"])
+        self.assertFalse(result["provider_is_error"])
+        self.assertIsNone(result["result"])
+        self.assertEqual("Useful peer answer 雪", result["partial_result"])
+        self.assertEqual("call\n", self.calls.read_text())
+        self.assertEqual(task[:1], (self.base / "received-task.txt").read_bytes())
+        evidence = Path(result["evidence_directory"])
+        self.assertEqual(task, (evidence / "task.txt").read_bytes())
+        native = json.loads((evidence / "stdout.json").read_text())
+        self.assertEqual("Useful peer answer 雪", native["result"])
+        self.assertEqual(result, json.loads((evidence / "result.json").read_text()))
+
+    def test_timeout_during_partial_delivery_retains_the_unwritten_count(self):
+        task = b"Artificial partial task\n" * 2200
+        self.configure(read_delay=20)
+        call_final_json = peer._call_final_json
+        capacity = []
+
+        def bounded_pipe(process, task, timeout, feedback, envelope):
+            capacity.append(fcntl.fcntl(process.stdin.fileno(), fcntl.F_SETPIPE_SZ, 4096))
+            return call_final_json(process, task, timeout, feedback, envelope)
+
+        with (mock.patch.object(peer, "_WAIT_FEEDBACK_SECONDS", 0.04),
+              mock.patch.object(peer, "_call_final_json", side_effect=bounded_pipe),
+              mock.patch.object(peer, "_stop", wraps=peer._stop) as stop):
+            code, result, _ = self.invoke("--timeout", "1", stdin=task)
+        self.assertEqual(1, code, result)
+        self.assertEqual("uncertain", result["state"])
+        self.assertTrue(result["needs_attention"])
+        self.assertEqual("uncertain", result["task_delivery"])
+        self.assertEqual(len(task) - capacity[0], result["native_input_unwritten_bytes"])
+        self.assertIsNone(result["result"])
+        self.assertIn("timed out", result["message"])
+        self.assertEqual(-signal.SIGTERM, result["process_exit_code"])
+        self.assertEqual("call\n", self.calls.read_text())
+        self.assertEqual(task, (Path(result["evidence_directory"]) / "task.txt").read_bytes())
+        self.assertEqual(result, json.loads((Path(result["evidence_directory"]) / "result.json").read_text()))
+        stop.assert_called_once()
+
+    def test_cancellation_during_partial_delivery_retains_the_unwritten_count(self):
+        task = b"Artificial partial task\n" * 2200
+        self.configure(read_delay=20)
+        call_final_json, write = peer._call_final_json, peer.os.write
+        written = []
+
+        def interrupting_call(process, task, timeout, feedback, envelope):
+            fcntl.fcntl(process.stdin.fileno(), fcntl.F_SETPIPE_SZ, 4096)
+
+            def record_write(fd, body):
+                count = write(fd, body)
+                written.append(count)
+                return count
+
+            def interrupt_after_write():
+                if written:
+                    raise KeyboardInterrupt()
+                feedback()
+
+            with mock.patch.object(peer.os, "write", side_effect=record_write):
+                return call_final_json(process, task, timeout, interrupt_after_write, envelope)
+
+        with (mock.patch.object(peer, "_call_final_json", side_effect=interrupting_call) as call,
+              mock.patch.object(peer, "_stop", wraps=peer._stop) as stop):
+            code, result, _ = self.invoke(stdin=task)
+        self.assertEqual(130, code, result)
+        self.assertEqual("uncertain", result["state"])
+        self.assertTrue(result["provider_started"])
+        self.assertTrue(result["needs_attention"])
+        self.assertEqual("uncertain", result["task_delivery"])
+        self.assertGreater(sum(written), 0)
+        self.assertLess(sum(written), len(task))
+        self.assertEqual(len(task) - sum(written), result["native_input_unwritten_bytes"])
+        self.assertIsNone(result["result"])
+        self.assertIn("interrupted", result["message"])
+        self.assertIsNotNone(result["process_exit_code"])
+        self.assertEqual(task, (Path(result["evidence_directory"]) / "task.txt").read_bytes())
+        self.assertEqual(result, json.loads((Path(result["evidence_directory"]) / "result.json").read_text()))
+        call.assert_called_once()
+        stop.assert_called_once()
+
+    def test_failed_waiting_diagnostic_does_not_stop_or_retry_provider(self):
+        self.configure(sleep_seconds=0.14)
+        original_print = print
+
+        def disconnected_diagnostic(*args, **kwargs):
+            if kwargs.get("file") is sys.stderr and "provider progress unknown" in str(args[0]):
+                raise BrokenPipeError("ARTIFICIAL-PRIVATE-DIAGNOSTIC")
+            return original_print(*args, **kwargs)
+
+        with (mock.patch.object(peer, "_WAIT_FEEDBACK_SECONDS", 0.02),
+              mock.patch("builtins.print", side_effect=disconnected_diagnostic),
+              mock.patch.object(peer, "_stop", wraps=peer._stop) as stop):
+            code, result, diagnostic = self.invoke("--timeout", "3")
+        self.assertEqual(0, code, result)
+        self.assertEqual("returned", result["state"])
+        self.assertFalse(result["needs_attention"])
+        self.assertEqual("call\n", self.calls.read_text())
+        stop.assert_not_called()
+        self.assertEqual(1, len(diagnostic.splitlines()))
+        self.assertNotIn("ARTIFICIAL-PRIVATE-DIAGNOSTIC", json.dumps(result))
+
+    def test_initial_evidence_breadcrumb_escapes_controls_without_changing_path(self):
+        directory = self.base / "evidence\n\x1b[31m\r\u202ename"
+        code, result, diagnostic = self.invoke(output=directory)
+        self.assertEqual(0, code, result)
+        self.assertEqual(str(directory), result["evidence_directory"])
+        self.assertTrue((directory / "result.json").is_file())
+        self.assertEqual(1, len(diagnostic.splitlines()))
+        self.assertNotIn("\x1b", diagnostic)
+        self.assertNotIn("\r", diagnostic)
+        self.assertNotIn("\u202e", diagnostic)
+        self.assertIn("evidence\\n\\u001b[31m\\r\\u202ename", diagnostic)
 
     def test_source_peer_does_not_attribute_selected_launcher_runtime(self):
         hook = shlex.join([str(self.relay), "--repo", str(self.repo), "provider-hook", "--client", "claude"])
@@ -190,7 +421,19 @@ class PeerTests(unittest.TestCase):
 
     def test_timeout_retains_side_effects_and_never_retries(self):
         self.configure(sleep=True)
-        code, result, _ = self.invoke("--timeout", "1")
+        with (mock.patch.object(peer, "_WAIT_FEEDBACK_SECONDS", 0.04),
+              mock.patch.object(peer, "_stop", wraps=peer._stop) as stop):
+            code, result, diagnostic = self.invoke("--timeout", "1")
+        stop.assert_called_once()
+        owned = stop.call_args.args[0]
+        receipt = json.loads(self.receipt.read_text())
+        self.assertEqual(receipt["pid"], owned.pid)
+        self.assertEqual(receipt["pid"], receipt["pgid"])
+        self.assertEqual(-signal.SIGTERM, result["process_exit_code"])
+        with self.assertRaises(ProcessLookupError):
+            os.killpg(receipt["pgid"], 0)
+        self.assertGreater(len(diagnostic.splitlines()), 2)
+        self.assertLess(result["elapsed_seconds"], 5)
         self.assertEqual(1, code)
         self.assertEqual("uncertain", result["state"])
         self.assertTrue(result["provider_started"])
@@ -384,7 +627,6 @@ class PeerTests(unittest.TestCase):
         handlers = {number: signal.getsignal(number)
                     for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
         process = mock.Mock(returncode=None)
-        process.communicate.side_effect = KeyboardInterrupt()
         stops = 0
 
         def interrupted_stop(child):
@@ -398,6 +640,7 @@ class PeerTests(unittest.TestCase):
         plan = {"argv": [str(self.provider), *self.native_arguments], "repo": str(self.repo)}
         with (mock.patch.object(peer, "prepare", return_value=plan),
               mock.patch.object(peer.subprocess, "Popen", return_value=process),
+              mock.patch.object(peer, "_call_final_json", side_effect=KeyboardInterrupt()),
               mock.patch.object(peer, "_stop", side_effect=interrupted_stop)):
             code, result, _ = self.invoke()
         self.assertEqual(130, code)

@@ -100,6 +100,7 @@ while True:
             sys.stdout.buffer.write(b'{' + b'x' * spec['oversized_line'])
             sys.stdout.buffer.flush()
             raise SystemExit(0)
+        time.sleep(spec.get('event_delay', 0))
         for event in spec.get('events', []):
             emit(event)
             if 'id' in event and 'method' in event:
@@ -196,6 +197,7 @@ class CodexProtocolTests(unittest.TestCase):
               mock.patch.dict(os.environ, self.environment, clear=True)):
             code = peer.peer_main(arguments)
         self.assertTrue(stdout.getvalue(), stderr.getvalue())
+        self.last_diagnostic = stderr.getvalue()
         return code, json.loads(stdout.getvalue()), directory
 
     def recorded_requests(self):
@@ -255,6 +257,28 @@ class CodexProtocolTests(unittest.TestCase):
         resume = next(request for request in requests if request.get("method") == "thread/resume")
         self.assertEqual(THREAD, resume["params"]["threadId"])
         self.assertNotIn("thread/start", [request.get("method") for request in requests])
+
+    def test_streaming_wait_advertises_observed_target_without_echoing_native_content(self):
+        self.configure(event_delay=0.24)
+        with mock.patch.object(peer, "_WAIT_FEEDBACK_SECONDS", 0.02):
+            code, result, directory = self.invoke()
+        self.assertEqual(0, code, result)
+        self.assertEqual("returned", result["state"])
+        self.assertEqual(ANSWER, result["result"])
+        self.assertFalse(result["needs_attention"])
+        self.assertEqual("call\n", self.calls.read_text())
+        requests = self.recorded_requests()
+        starts = [request for request in requests if request["method"] == "turn/start"]
+        self.assertEqual(1, len(starts))
+        self.assertEqual(self.task.read_text(), starts[0]["params"]["input"][0]["text"])
+        lines = self.last_diagnostic.splitlines()[1:]
+        self.assertGreaterEqual(len(lines), 2)
+        self.assertTrue(any("input target advertised; new input acceptance unknown" in line
+                            and "waiting for provider return" in line for line in lines))
+        self.assertTrue(all("provider progress unknown" in line for line in lines))
+        for private in (THREAD, TURN, ANSWER, "fixture-native-selection", self.task.read_text()):
+            self.assertNotIn(private, "\n".join(lines))
+        self.assertEqual(result, json.loads((directory / "result.json").read_text()))
 
     def test_resume_preserves_an_opaque_native_thread_identity(self):
         identifier = "native-thread-fixture-opaque"
