@@ -80,9 +80,34 @@ class PeerOutputTests(unittest.TestCase):
         for line in lines[4:]:
             self.assertIn("input closed", line)
         self.assertIn("native return observed; waiting for owned process exit", lines[6])
-        self.assertIn("waiting for provider return", lines[7])
+        self.assertIn("waiting; submission stage not recorded", lines[7])
         self.assertNotIn("ARTIFICIAL-PRIVATE", stderr.getvalue())
         self.assertTrue(all("provider progress unknown" in line for line in lines))
+
+    def test_claude_waiting_stages_distinguish_pipe_delivery_from_consumption(self):
+        cases = ((None, "waiting; submission stage not recorded"),
+                 ("in_progress", "writing task to provider stdin; consumption unknown"),
+                 ("written", "task written to provider stdin; waiting for result; consumption unknown"),
+                 ("uncertain", "task delivery incomplete; waiting for provider exit"),
+                 ("ARTIFICIAL-PRIVATE-DELIVERY", "waiting; submission stage not recorded"))
+        for delivery, expected in cases:
+            with self.subTest(delivery=delivery):
+                envelope = {"provider": "claude", "state": "uncertain",
+                            "initial_message_uuid": "ARTIFICIAL-PRIVATE-MESSAGE"}
+                if delivery is not None:
+                    envelope["task_delivery"] = delivery
+                original = deepcopy(envelope)
+                stderr = io.StringIO()
+                with (redirect_stderr(stderr),
+                      mock.patch.object(provider, "_WAIT_FEEDBACK_SECONDS", 30),
+                      mock.patch.object(provider.time, "monotonic", return_value=30)):
+                    provider._WaitingFeedback(0, 600, envelope, None)()
+                self.assertEqual(1, len(stderr.getvalue().splitlines()))
+                self.assertIn(expected, stderr.getvalue())
+                self.assertIn("provider progress unknown", stderr.getvalue())
+                self.assertNotIn("waiting for provider return", stderr.getvalue())
+                self.assertNotIn("ARTIFICIAL-PRIVATE", stderr.getvalue())
+                self.assertEqual(original, envelope)
 
     def test_failed_waiting_sink_is_disabled_without_changing_the_observation(self):
         closed = io.StringIO()

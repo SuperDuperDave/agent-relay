@@ -33,8 +33,8 @@ merely to improve reporting.
 
 [PR #12](https://github.com/SuperDuperDave/agent-relay/pull/12) merged the changes
 for [v0.4.6](https://github.com/SuperDuperDave/agent-relay/releases/tag/v0.4.6).
-All 687 strict local tests passed, and the
-[candidate’s hosted checks](https://github.com/SuperDuperDave/agent-relay/actions/runs/34772394207)
+All 687 strict local tests passed at `e943dad`, and the
+[Linux hosted checks for that commit](https://github.com/SuperDuperDave/agent-relay/actions/runs/34772394207)
 passed. Those checks exercised protocol fixtures, installed runtime behavior and
 the no-account workflow. The Claude review itself inspected source without
 running project tests; it did not establish native execution of the final

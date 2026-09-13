@@ -198,6 +198,7 @@ task, and an unavailable peer does not itself justify changing approval policy.
 | `requested_session_id` | The requested identity, when known before launch. It remains unverified until native output confirms it. A missing verified `session_id` does not prove that no session started; the requested identity alone is not a resume instruction. |
 | `observed_session_id` | If present on an identity mismatch, the unverified native identity reported by the provider. It is diagnostic, not a resume instruction; inspect the retained raw output. |
 | `resumed` | Whether this call requested resume (`true`) or a fresh session (`false`), not independent proof of restored history or a cache hit. |
+| `task_delivery`, `native_input_unwritten_bytes` | When recorded, whether the task was fully written to the native input pipe and how many bytes remained unwritten. A complete pipe write does not prove native consumption. Missing fields remain unknown. |
 | `relay_acknowledgement`, `workflow_completion` | Always `not_checked` by the helper. Inspect actual ledger state and artifacts separately. |
 
 Each call retains a private directory containing its request, task, native
@@ -215,6 +216,15 @@ The terminal or calling application may buffer or hide stderr. `--json` stdout
 still contains only the final result. Ordinary Claude calls retain their normal
 final-JSON mode; waiting feedback does not inspect native transcripts or change
 permissions, deadlines or retry behavior.
+Where a submission stage is unobserved, the waiting message says so. Ordinary
+Claude calls distinguish writing the task from waiting after a complete pipe
+write. If input closes early, a matching successful native reply cannot establish
+an answer to the complete task: the call is `uncertain`, needs attention and
+retains useful text as `partial_result` and in raw output. A native refusal
+remains `provider_error`; interrupted calls remain uncertain. Inspect the
+unwritten-byte observation and retained work before any follow-up, without
+automatically resending. The support report includes these delivery observations
+without exposing task or answer text.
 Keep these files private: native output and task text can contain sensitive
 project information. Nothing is uploaded or published by Multithread's recorder.
 `stdout_observation` records the byte count and SHA-256 of observed stdout.

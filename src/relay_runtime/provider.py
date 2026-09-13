@@ -307,8 +307,16 @@ class _WaitingFeedback:
             stage = "waiting for native setup; task not submitted"
         elif self.envelope.get("task_submission") == "requested":
             stage = "task submission requested; acceptance not yet observed"
-        else:
+        elif self.envelope.get("task_submission") == "accepted":
             stage = "waiting for provider return"
+        elif self.envelope.get("task_delivery") == "in_progress":
+            stage = "writing task to provider stdin; consumption unknown"
+        elif self.envelope.get("task_delivery") == "written":
+            stage = "task written to provider stdin; waiting for result; consumption unknown"
+        elif self.envelope.get("task_delivery") == "uncertain":
+            stage = "task delivery incomplete; waiting for provider exit"
+        else:
+            stage = "waiting; submission stage not recorded"
         if self.control is None:
             channel = "input not enabled for this call"
         elif "control_fault" in self.envelope:
@@ -328,7 +336,7 @@ class _WaitingFeedback:
             self.disabled = True
 
 
-def _call_final_json(process, task, timeout, feedback):
+def _call_final_json(process, task, timeout, feedback, envelope):
     """Deliver stdin once, then wait; output already goes to evidence files.
 
     Retrying communicate(input=None) can leave a partially written input pipe
@@ -336,6 +344,8 @@ def _call_final_json(process, task, timeout, feedback):
     as the streaming drivers do, without accessing Popen's private buffers.
     """
     deadline = time.monotonic() + timeout
+    pending = memoryview(task)
+    envelope["task_delivery"] = "in_progress"
 
     def remaining():
         allowance = deadline - time.monotonic()
@@ -345,7 +355,6 @@ def _call_final_json(process, task, timeout, feedback):
 
     try:
         os.set_blocking(process.stdin.fileno(), False)
-        pending = memoryview(task)
         with selectors.DefaultSelector() as selector:
             selector.register(process.stdin, selectors.EVENT_WRITE)
             while pending:
@@ -364,6 +373,8 @@ def _call_final_json(process, task, timeout, feedback):
         # from its output rather than replacing it with a pipe diagnostic.
         pass
     finally:
+        envelope["native_input_unwritten_bytes"] = len(pending)
+        envelope["task_delivery"] = "uncertain" if pending else "written"
         process.stdin.close()
     while True:
         feedback()
@@ -538,6 +549,15 @@ def _interpret(directory, envelope):
         envelope["message"] = " ".join(causes) + " Inspect retained output and evidence before continuing."
     else:
         envelope["message"] = "Assess the answer and durable Multithread evidence; a returned turn is not workflow completion."
+    if envelope.get("task_delivery") == "uncertain":
+        envelope["needs_attention"] = True
+        if envelope["state"] == "returned":
+            # Matching session identity cannot attribute an answer to a task
+            # we know was not fully delivered. Keep useful text as partial.
+            envelope["state"] = "uncertain"
+            envelope["partial_result"] = envelope["result"]
+            envelope["result"] = None
+        envelope["message"] += " The task was not fully written to provider stdin; any observed text may answer incomplete or other input. Inspect retained evidence before follow-up."
 
 
 def peer_main(argv=None, *, report_entry=None):
@@ -675,7 +695,7 @@ def _run_peer(args, interruption):
                 envelope.update(state="uncertain", provider_started=True)
                 stage = "provider_call"
                 if not streaming:
-                    _call_final_json(process, task, args.timeout, feedback)
+                    _call_final_json(process, task, args.timeout, feedback, envelope)
                 else:
                     driver.run(process, task, plan["repo"], args.resume,
                                directory, envelope, args.timeout, control=ObservedControl(control, envelope), observer=observer,
@@ -847,6 +867,10 @@ def _report_projection(record):
     call["task_submission"] = (
         "not_recorded" if "task_submission" not in record else record["task_submission"]
         if record["task_submission"] in ("not_submitted", "requested", "accepted") else "unknown")
+    call["task_delivery"] = (
+        "not_recorded" if "task_delivery" not in record else record["task_delivery"]
+        if record["task_delivery"] in ("written", "uncertain") else "unknown")
+    call["native_input_unwritten_bytes"] = _report_number(record, "native_input_unwritten_bytes", integer=True)
     producer = record.get("producer_runtime")
     producer_status = "not_recorded" if "producer_runtime" not in record else "invalid"
     if isinstance(producer, dict):
@@ -983,6 +1007,9 @@ def report_main(argv=None):
                 f"; {observation['bytes']} bytes; truncated={str(observation['truncated']).lower()}; scope={observation['scope']}"
                 if observation["status"] == "recorded" else "; byte count unknown"))
             print("Recorded session identity: " + call["session_identity"] + " (identifiers omitted)")
+            print("Task pipe delivery: " + call["task_delivery"] + "; unwritten bytes: "
+                  + str(call["native_input_unwritten_bytes"] if call["native_input_unwritten_bytes"] is not None else "unknown")
+                  + "; a pipe write does not prove native consumption.")
         print("Retained receipt only: provider activity, cause and workflow completion are not checked.")
         print("Review before sharing. Task/answer text, paths, identities, hashes and native diagnostics are excluded.")
     return 0 if report["report_state"] == "reported" else 1
