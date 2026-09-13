@@ -37,6 +37,7 @@ if str(SOURCE_DIR) not in sys.path:
 from relay_core.cli import (  # noqa: E402
     MAX_BRIEF_CONTEXT_BYTES,
     MAX_JSON_STDIN,
+    _render_brief,
 )
 from relay_core.protocol import (  # noqa: E402
     ConflictError,
@@ -647,6 +648,8 @@ class BriefingAndDeliveryTests(RelayTestCase):
                         int(seq) for seq in re.findall(r"^- seq=(\d+)\b", sections[key], re.M)
                     ]
                     expected = [event["seq"] for event in selected[key]]
+                    if key == "pending_signals":
+                        self.assertTrue(displayed, sections[key])
                     self.assertEqual(expected[:len(displayed)], displayed)
                     self.assertLess(len(displayed), len(expected))
                     self.assertRegex(
@@ -664,6 +667,41 @@ class BriefingAndDeliveryTests(RelayTestCase):
 
     def test_dense_unicode_brief_preserves_section_visibility_and_pending_identity(self) -> None:
         self.assert_dense_brief_visibility("\U0001f3cb")
+
+    def test_brief_preserves_first_pending_identity_when_its_row_cannot_fit(self) -> None:
+        with self.open_store() as store:
+            for index, summary in enumerate(("\U0001f3cb" * 300, "A shorter later signal")):
+                store.emit(self.valid_event(
+                    id=f"evt:oversized-pending-{index}", kind="work.blocked",
+                    target="codex", summary=summary,
+                ))
+            intent = store.emit(self.valid_event(
+                id="evt:oversized-neighbor-intent", summary="A visible neighboring intent",
+            ))["event"]
+            selected = store.brief("codex")
+            before = store.events()
+
+        # Use a smaller renderer budget to exercise an unfit first row with
+        # protocol-valid data. The ordinary 4 KiB budget is covered above.
+        budget = 800
+        first, later = selected["pending_signals"]
+        first_only = {**selected, "pending_signals": [first]}
+        later_only = {**selected, "pending_signals": [later]}
+        self.assertGreater(len(_render_brief(first_only).encode("utf-8")), budget)
+        self.assertLessEqual(len(_render_brief(later_only).encode("utf-8")), budget)
+        with mock.patch("relay_core.cli.MAX_BRIEF_CONTEXT_BYTES", budget):
+            context = _render_brief(selected)
+        self.assertLessEqual(len(context.encode("utf-8")), budget)
+        sections = self.brief_sections(context)
+        pending = sections["pending_signals"]
+        self.assertNotRegex(pending, r"(?m)^- seq=\d+")
+        self.assertIn("2 item(s) omitted by byte limit", pending)
+        self.assertRegex(pending, rf"first omitted seq={first['seq']}\b")
+        self.assertNotIn("- none", pending)
+        self.assertIn(f"seq={intent['seq']} ", sections["recent_intents"])
+        with self.open_store() as store:
+            self.assertEqual(before, store.events())
+            self.assertEqual(selected, store.brief("codex"))
 
     def test_sparse_brief_retains_quoted_details_and_distinguishes_empty_sections(self) -> None:
         with self.open_store() as store:

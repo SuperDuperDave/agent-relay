@@ -916,13 +916,18 @@ def _render_brief(result: Mapping[str, Any]) -> str:
         return full
 
     # Reserve every section and omission cue before spending space on details.
-    # Add whole rows in rounds, preserving each section's ordered prefix. An
-    # oversized row never hides a section or lets a later signal jump its queue.
+    # Fund pending signals first in each round without changing display order.
+    # Preserve each section's ordered prefix: an oversized row never hides a
+    # section or lets a later signal jump its queue.
     counts = [0] * len(sections)
+    fill_order = sorted(
+        range(len(sections)), key=lambda index: sections[index][0] != "pending_signals"
+    )
     context = render(counts)
     while True:
         added = False
-        for index, (_, _, rows) in enumerate(sections):
+        for index in fill_order:
+            rows = sections[index][2]
             if counts[index] == len(rows):
                 continue
             counts[index] += 1

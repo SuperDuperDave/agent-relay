@@ -327,6 +327,7 @@ RelayStore.brief = fail_brief
             self.assertIn("omitted by byte limit", section)
             if index == 2:
                 displayed = [int(seq) for seq in re.findall(r"^- seq=(\d+)\b", section, re.M)]
+                self.assertTrue(displayed, section)
                 self.assertEqual(pending_seqs[:len(displayed)], displayed)
                 self.assertLess(len(displayed), len(pending_seqs))
                 self.assertRegex(section, rf"first omitted seq={pending_seqs[len(displayed)]}\b")

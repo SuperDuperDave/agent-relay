@@ -74,7 +74,8 @@ changes permissions, or wakes another agent.
 
 The rendered brief has its own 4 KiB UTF-8 cap. It keeps every section visible
 when details do not fit, distinguishes omitted items from an empty section,
-and identifies the first omitted signal by its exact sequence. Use the same
+and identifies the first omitted signal by its exact sequence. Pending signals
+receive the first use of the detail budget in each round. Use the same
 `brief` query with `--json` for the selected details, then retrieve full events
 as needed. Byte omissions and per-section item limits are separate; neither
 removes ledger evidence or acknowledges a signal. Human `status` also marks
