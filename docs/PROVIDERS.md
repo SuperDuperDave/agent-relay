@@ -211,10 +211,15 @@ attempt. Create separate author and reviewer worktrees, enroll that repository
 once using [setup](SETUP.md#check-readiness-or-enroll-another-project), and verify
 that both worktrees resolve to the same Git common directory. In separate
 interactive terminals, launch Codex in the author checkout and Claude in the
-reviewer checkout:
+reviewer checkout. In the author terminal:
 
 ```sh
 ~/.local/bin/multithread launch codex --repo /absolute/author-checkout
+```
+
+In the reviewer terminal:
+
+```sh
 ~/.local/bin/multithread launch claude --repo /absolute/reviewer-checkout
 ```
 
