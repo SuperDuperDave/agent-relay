@@ -131,10 +131,10 @@ class ClaudeIntegrationTests(unittest.TestCase):
     def test_background_cleanup_gets_remaining_call_time_and_retains_separate_result(self):
         wait = peer._wait
 
-        def scaled_wait(process, timeout, observer=None):
+        def scaled_wait(process, timeout, observer=None, feedback=None):
             # Make the old fixed shutdown deadline fail quickly, while leaving
             # the two-second overall fixture allowance intact.
-            return wait(process, .05 if timeout == 5 else timeout, observer)
+            return wait(process, .05 if timeout == 5 else timeout, observer, feedback)
 
         with mock.patch.object(peer, '_wait', scaled_wait):
             code, value, _ = self.invoke([{'read':1}, {'emit':protocol.init()},
@@ -156,9 +156,9 @@ class ClaudeIntegrationTests(unittest.TestCase):
         wait = peer._wait
         allowances = []
 
-        def observe_wait(process, timeout, observer=None):
+        def observe_wait(process, timeout, observer=None, feedback=None):
             allowances.append(timeout)
-            return wait(process, .05, observer)
+            return wait(process, .05, observer, feedback)
 
         with mock.patch.object(peer, '_wait', observe_wait):
             code, value, _ = self.invoke([{'read':1}, {'emit':protocol.init()},
