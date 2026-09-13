@@ -270,8 +270,9 @@ Authorized scope and limits: <permitted inspection/actions and explicit exclusio
 
 After a clean return and completed owned cleanup, the private JSON result can
 include `follow_up_preparation.argv_prefix`. This argument array preserves the
-prior invocation entry, provider wrapper, verified session, checkout and call
-bounds. It includes `--dry-run --json` and ends with `--task-file`: append the
+selected Multithread launcher, provider wrapper, verified session, checkout and
+call bounds, using the source entry when supplied. It includes `--dry-run --json`
+and ends with `--task-file`: append the
 path of the new follow-up task, optionally followed by a fresh `--output-dir`.
 Keep arguments separate when executing it, or quote each argument for the shell.
 It reuses neither the prior task nor its output directory. Review the preparation,

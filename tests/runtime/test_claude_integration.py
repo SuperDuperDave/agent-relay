@@ -75,6 +75,10 @@ class ClaudeIntegrationTests(unittest.TestCase):
         self.assertEqual(0, code, value)
         self.assertEqual('returned', value['state'])
         self.assertEqual(value['requested_session_id'], value['session_id'])
+        prefix = value['follow_up_preparation']['argv_prefix']
+        self.assertIn('--live-input', prefix)
+        self.assertIn('--resume=' + value['session_id'], prefix)
+        self.assertEqual(['--dry-run', '--json', '--task-file'], prefix[-3:])
         argv = json.loads(self.receipt.read_text())['argv']
         self.assertIn('--replay-user-messages', argv)
         self.assertIn('--verbose', argv)
@@ -116,6 +120,7 @@ class ClaudeIntegrationTests(unittest.TestCase):
         self.assertEqual(protocol.ANSWER, value['result'])
         self.assertTrue(value['needs_attention'])
         self.assertIn('evidence_recording', value)
+        self.assertNotIn('follow_up_preparation', value)
 
     def test_broken_mailbox_does_not_terminate_the_original_task(self):
         with mock.patch.object(control.CallControl, 'pending', side_effect=control.ControlError('synthetic mailbox fault')):
