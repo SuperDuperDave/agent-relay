@@ -254,6 +254,182 @@ class ClaudeProtocolTests(unittest.TestCase):
         self.assertEqual(SESSION, envelope["session_id"])
         self.assertEqual(SESSION, self.submitted()[0]["session_id"])
 
+    def test_invalid_optional_measurements_preserve_the_attributed_answer_and_consumption(self):
+        metrics = {"num_turns": ("provider_turns", 1),
+                   "duration_ms": ("provider_duration_ms", 12),
+                   "total_cost_usd": ("estimated_cost_usd", 0.5)}
+        for native_field, (field, _) in metrics.items():
+            for invalid in (-1, True, "12", "ARTIFICIAL-PRIVATE-MEASUREMENT"):
+                with self.subTest(field=field, invalid=invalid):
+                    control = Control()
+                    envelope, directory, _ = self.run_native(
+                        [{"read": 1}, {"emit": init()}, {"emit": result(**{native_field: invalid})}],
+                        control=control)
+                    self.assertEqual("returned", envelope["state"])
+                    self.assertEqual(ANSWER, envelope["result"])
+                    self.assertEqual(SESSION, envelope["session_id"])
+                    self.assertFalse(envelope["needs_attention"])
+                    self.assertIsNone(envelope[field])
+                    self.assertEqual([field], envelope["measurement_errors"])
+                    self.assertEqual("consumed", envelope["native_input"][0]["consumption"])
+                    self.assertEqual([(SESSION, None)], control.targets)
+                    self.assertEqual(1, len(self.submitted()))
+                    for other, expected in metrics.values():
+                        if other != field:
+                            self.assertEqual(expected, envelope[other])
+                    self.assert_raw(envelope, directory)
+
+    def test_bad_usage_and_model_counters_keep_independent_metrics_and_permission_denials(self):
+        private = "ARTIFICIAL-PRIVATE-MODEL-MEASUREMENT"
+        envelope, directory, _ = self.run_native(
+            [{"read": 1}, {"emit": init()}, {"emit": result(
+                usage={"input_tokens": -1, "output_tokens": 4,
+                       "server_tool_use": {"web_search_requests": True, "web_fetch_requests": 0},
+                       "output_tokens_details": {"thinking_tokens": private}},
+                modelUsage={private: {"inputTokens": private, "outputTokens": 7, "costUSD": False}},
+                denials=[{"tool_name": "Write", "tool_use_id": "fixture-tool", "tool_input": private}])}])
+        self.assertEqual("returned", envelope["state"])
+        self.assertEqual(ANSWER, envelope["result"])
+        self.assertTrue(envelope["needs_attention"])
+        self.assertEqual([{"tool_name": "Write", "tool_use_id": "fixture-tool"}], envelope["permission_denials"])
+        self.assertEqual({"input_tokens": None, "output_tokens": 4,
+                          "server_tool_use": {"web_search_requests": None, "web_fetch_requests": 0},
+                          "output_tokens_details": {"thinking_tokens": None}}, envelope["usage"])
+        self.assertEqual({"inputTokens": None, "outputTokens": 7, "costUSD": None},
+                         envelope["model_usage"][private])
+        self.assertEqual({"usage.input_tokens", "usage.server_tool_use.web_search_requests",
+                          "usage.output_tokens_details.thinking_tokens", "model_usage.model.inputTokens",
+                          "model_usage.model.costUSD"}, set(envelope["measurement_errors"]))
+        self.assertNotIn(private, json.dumps(envelope["measurement_errors"]))
+        self.assertEqual(12, envelope["provider_duration_ms"])
+        self.assertEqual(0.5, envelope["estimated_cost_usd"])
+        self.assertIn(private.encode(), self.assert_raw(envelope, directory))
+
+    def test_absent_or_null_optional_measurements_remain_unknown_without_an_error(self):
+        for omitted in (False, True):
+            with self.subTest(omitted=omitted):
+                final = result()
+                for field in ("num_turns", "duration_ms", "total_cost_usd", "usage", "modelUsage"):
+                    if omitted:
+                        final.pop(field)
+                    else:
+                        final[field] = None
+                envelope, _, _ = self.run_native([{"read": 1}, {"emit": init()}, {"emit": final}])
+                self.assertEqual("returned", envelope["state"])
+                self.assertEqual(ANSWER, envelope["result"])
+                self.assertFalse(envelope["needs_attention"])
+                for field in ("provider_turns", "provider_duration_ms", "estimated_cost_usd", "usage", "model_usage"):
+                    self.assertIsNone(envelope[field])
+                self.assertFalse(envelope.get("measurement_errors"))
+
+    def test_optional_container_failures_have_bounded_paths_without_model_names(self):
+        private = "ARTIFICIAL-PRIVATE-MODEL-"
+        models = {private + str(index): {"inputTokens": "invalid", "outputTokens": 7}
+                  for index in range(50)}
+        models[private + "malformed"] = "invalid container"
+        envelope, _, _ = self.run_native([
+            {"read": 1}, {"emit": init()}, {"emit": result(usage="invalid container", modelUsage=models)}])
+        self.assertEqual("returned", envelope["state"])
+        self.assertEqual(ANSWER, envelope["result"])
+        self.assertFalse(envelope["needs_attention"])
+        self.assertIsNone(envelope["usage"])
+        self.assertEqual({"usage", "model_usage.model", "model_usage.model.inputTokens"},
+                         set(envelope["measurement_errors"]))
+        self.assertEqual(3, len(envelope["measurement_errors"]))
+        self.assertLessEqual(len(envelope["measurement_errors"]), 32)
+        self.assertNotIn(private, json.dumps(envelope["measurement_errors"]))
+
+    def test_related_usage_and_later_cumulative_totals_keep_distinct_stable_scopes(self):
+        envelope, _, _ = self.run_native([
+            {"read": 1}, {"emit": init()},
+            {"emit": result(total_cost_usd=0.25, modelUsage={"fixture": {"outputTokens": 4}})},
+            {"emit": result(text="Unrelated background notice", uuids=["unrelated-message"],
+                             usage={"input_tokens": 900, "output_tokens": 900}, total_cost_usd=0.4,
+                             modelUsage={"fixture": {"outputTokens": 10}})}])
+        self.assertEqual("returned", envelope["state"])
+        self.assertEqual(ANSWER, envelope["result"])
+        self.assertFalse(envelope["needs_attention"])
+        self.assertEqual({"input_tokens": 3, "output_tokens": 4}, envelope["usage"])
+        self.assertEqual({"fixture": {"outputTokens": 10}}, envelope["model_usage"])
+        self.assertEqual(0.4, envelope["estimated_cost_usd"])
+        self.assertEqual("latest_related_native_result", envelope["usage_scope_id"])
+        self.assertEqual("native_query_cumulative", envelope["model_usage_scope_id"])
+        self.assertEqual("cumulative_through_latest_native_result", envelope["cost_scope_id"])
+
+    def test_later_valid_related_measurements_clear_current_warnings_but_preserve_history(self):
+        envelope, directory, _ = self.run_native([
+            {"read": 1}, {"emit": init()},
+            {"emit": result(num_turns=-1, duration_ms=True, total_cost_usd="12",
+                             usage={"input_tokens": -1, "output_tokens": 4},
+                             modelUsage={"fixture": {"outputTokens": True}})},
+            {"emit": result(text=LATER, num_turns=2, duration_ms=24, total_cost_usd=0.75,
+                             usage={"input_tokens": 6, "output_tokens": 8},
+                             modelUsage={"fixture": {"outputTokens": 12}})}])
+        self.assertEqual("returned", envelope["state"])
+        self.assertEqual(LATER, envelope["result"])
+        self.assertFalse(envelope["needs_attention"])
+        self.assertEqual(2, envelope["provider_turns"])
+        self.assertEqual(24, envelope["provider_duration_ms"])
+        self.assertEqual(0.75, envelope["estimated_cost_usd"])
+        self.assertEqual({"input_tokens": 6, "output_tokens": 8}, envelope["usage"])
+        self.assertEqual({"fixture": {"outputTokens": 12}}, envelope["model_usage"])
+        self.assertFalse(envelope.get("measurement_errors"))
+        earlier, latest = envelope["native_results"]
+        self.assertEqual({"provider_turns", "provider_duration_ms", "estimated_cost_usd",
+                          "usage.input_tokens", "model_usage.model.outputTokens"},
+                         set(earlier["measurement_errors"]))
+        self.assertIsNone(earlier["num_turns"])
+        self.assertIsNone(earlier["usage"]["input_tokens"])
+        self.assertFalse(latest.get("measurement_errors"))
+        self.assertEqual("consumed", envelope["native_input"][0]["consumption"])
+        self.assert_raw(envelope, directory)
+
+    def test_unrelated_bad_loop_metrics_do_not_warn_about_retained_related_measurements(self):
+        envelope, _, _ = self.run_native([
+            {"read": 1}, {"emit": init()}, {"emit": result()},
+            {"emit": result(text="Background notice", uuids=["unrelated-message"],
+                             num_turns=-1, duration_ms=True,
+                             usage={"input_tokens": "12", "output_tokens": -1},
+                             total_cost_usd=0.75, modelUsage={"fixture": {"outputTokens": 12}})}])
+        self.assertEqual("returned", envelope["state"])
+        self.assertEqual(ANSWER, envelope["result"])
+        self.assertFalse(envelope["needs_attention"])
+        self.assertEqual(1, envelope["provider_turns"])
+        self.assertEqual(12, envelope["provider_duration_ms"])
+        self.assertEqual({"input_tokens": 3, "output_tokens": 4}, envelope["usage"])
+        self.assertEqual(0.75, envelope["estimated_cost_usd"])
+        self.assertEqual({"fixture": {"outputTokens": 12}}, envelope["model_usage"])
+        self.assertFalse(envelope.get("measurement_errors"))
+        background = envelope["native_results"][-1]
+        self.assertFalse(background["related"])
+        self.assertEqual({"provider_turns", "provider_duration_ms", "usage.input_tokens",
+                          "usage.output_tokens"}, set(background["measurement_errors"]))
+
+    def test_repaired_cumulative_metrics_clear_only_their_warnings(self):
+        envelope, _, _ = self.run_native([
+            {"read": 1}, {"emit": init()},
+            {"emit": result(num_turns=-1, duration_ms=True,
+                             usage={"input_tokens": "12", "output_tokens": 4})},
+            {"emit": result(text="Background notice", uuids=["unrelated-message"],
+                             total_cost_usd=-1, modelUsage={"fixture": {"outputTokens": True}})},
+            {"emit": result(text="Later background notice", uuids=["another-unrelated-message"],
+                             total_cost_usd=0.75, modelUsage={"fixture": {"outputTokens": 12}})}])
+        self.assertEqual("returned", envelope["state"])
+        self.assertEqual(ANSWER, envelope["result"])
+        self.assertFalse(envelope["needs_attention"])
+        self.assertIsNone(envelope["provider_turns"])
+        self.assertIsNone(envelope["provider_duration_ms"])
+        self.assertEqual({"input_tokens": None, "output_tokens": 4}, envelope["usage"])
+        self.assertEqual(0.75, envelope["estimated_cost_usd"])
+        self.assertEqual({"fixture": {"outputTokens": 12}}, envelope["model_usage"])
+        self.assertEqual({"provider_turns", "provider_duration_ms", "usage.input_tokens"},
+                         set(envelope["measurement_errors"]))
+        related, faulty, repaired = envelope["native_results"]
+        self.assertEqual(set(envelope["measurement_errors"]), set(related["measurement_errors"]))
+        self.assertEqual({"estimated_cost_usd", "model_usage.model.outputTokens"},
+                         set(faulty["measurement_errors"]))
+        self.assertFalse(repaired.get("measurement_errors"))
+
     def test_resume_initialization_after_background_notice_keeps_the_original_task(self):
         control = Control()
         envelope, _, _ = self.run_native([{'read': 1}, {'emit': init()},
@@ -514,6 +690,16 @@ class ClaudeProtocolTests(unittest.TestCase):
             "invalid answered list": [{"emit": result(uuids=None, user_message_uuid="a",
                                                       user_message_uuids=["b"])}],
         }
+        for name, changes in (
+            ("invalid error flag", {"is_error": "false"}),
+            ("invalid error list", {"errors": "ARTIFICIAL-PRIVATE-ERROR"}),
+            ("invalid error item", {"errors": [7]}),
+            ("invalid denial list", {"permission_denials": "ARTIFICIAL-PRIVATE-DENIAL"}),
+            ("invalid denial item", {"permission_denials": [7]}),
+            ("invalid final identity", {"uuid": None}),
+            ("missing final answer", {"result": None}),
+        ):
+            cases[name] = [{"emit": {**result(num_turns="invalid optional measurement"), **changes}}]
         for name, steps in cases.items():
             with self.subTest(case=name):
                 envelope, directory, _ = self.run_native(

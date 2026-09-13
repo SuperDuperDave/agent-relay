@@ -25,6 +25,8 @@ import time
 import tomllib
 import uuid
 from . import account_launcher
+from .native_io import (USAGE_SCOPES, MODEL_USAGE_SCOPES, COST_SCOPES,
+                        claude_measurements, measurement_scope)
 
 
 class LaunchError(Exception):
@@ -422,11 +424,12 @@ def _interpret(directory, envelope):
         # Tool inputs remain in private raw output, not the routine summary.
         "permission_denials": [{key: item.get(key) for key in ("tool_name", "tool_use_id")}
                                for item in denials],
-        "usage": native.get("usage"), "provider_turns": native.get("num_turns"),
-        "provider_duration_ms": native.get("duration_ms"),
-        "estimated_cost_usd": native.get("total_cost_usd"),
         "actual_billed_cost": "unknown",
     })
+    envelope.update(claude_measurements(native, envelope))
+    measurement_scope(envelope, "usage_scope", "native_main_loop", USAGE_SCOPES)
+    measurement_scope(envelope, "model_usage_scope", "native_query_cumulative", MODEL_USAGE_SCOPES)
+    measurement_scope(envelope, "cost_scope", "cumulative_through_latest_native_result", COST_SCOPES)
     envelope["needs_attention"] = bool(denials) or envelope["state"] != "returned" or (
         native.get("terminal_reason") not in (None, "end_turn", "completed"))
     if envelope["state"] == "provider_error":
@@ -494,7 +497,7 @@ def _run_peer(args, interruption):
     session = args.resume or (str(uuid.uuid4()) if args.client == "claude" else None)
     envelope = {"schema": 1, "provider": args.client, "state": "unavailable",
                 "requested_session_id": session, "session_id": None,
-                "provider_started": False, "process_exit_code": None,
+                "provider_started": False, "process_exit_code": None, "resumed": bool(args.resume),
                 "evidence_directory": None, "result": None, "needs_attention": True,
                 "hook_delivery": "unknown", "provider_tools": "unknown",
                 "relay_acknowledgement": "not_checked", "workflow_completion": "not_checked",
@@ -703,6 +706,14 @@ def _report_count(record, key, item_type):
     return len(value)
 
 
+def _report_scope(record, field, scopes):
+    # Explicit unknown IDs stay unknown. Only old receipts need prose matching.
+    if field + "_id" in record:
+        value = record[field + "_id"]
+        return value if isinstance(value, str) and value in scopes else "unknown"
+    return next((key for key, text in scopes.items() if record.get(field) == text), "unknown")
+
+
 def _report_projection(record):
     """Positive typed projection: never return arbitrary text or native objects."""
     if (record.get("provider") not in ("claude", "codex")
@@ -723,12 +734,16 @@ def _report_projection(record):
             # auxiliary measurements; never copy their values or coerce them.
             call[key] = None
             call["invalid_measurements"].append(key)
-    call["provider_measurement_scope"] = (
-        "latest_related_native_result" if record.get("usage_scope") ==
-        "latest related native result; main loop only, not the whole call" else "unknown")
-    call["cost_scope"] = (
-        "cumulative_through_latest_native_result" if record.get("cost_scope") ==
-        "cumulative through the latest native result; an estimate, not billing" else "unknown")
+    errors = record.get("measurement_errors")
+    if isinstance(errors, list):
+        for field in ("usage", "model_usage", "model_context_window", "provider_turns",
+                      "provider_duration_ms", "estimated_cost_usd"):
+            if field not in call["invalid_measurements"] and any(
+                    isinstance(item, str) and (item == field or item.startswith(field + "."))
+                    for item in errors[:32]):
+                call["invalid_measurements"].append(field)
+    call["provider_measurement_scope"] = _report_scope(record, "usage_scope", USAGE_SCOPES)
+    call["cost_scope"] = _report_scope(record, "cost_scope", COST_SCOPES)
     call["actual_billed_cost"] = "unknown"
     call["permission_denial_count"] = _report_count(record, "permission_denials", dict)
     call["provider_error_count"] = _report_count(record, "provider_errors", str)
@@ -938,6 +953,21 @@ def _display_peer(envelope, *, report_entry=None):
     if envelope.get("permission_denials"):
         print("Permission requests were denied; review them in the local result before continuing.")
     print(envelope.get("message", "Inspect the peer result."))
+    if type(envelope.get("resumed")) is bool:
+        print("Requested session mode: " + ("resume" if envelope["resumed"] else "fresh"))
+    try:
+        elapsed = _report_number(envelope, "elapsed_seconds")
+    except (ValueError, OverflowError):
+        elapsed = None
+    if elapsed is not None:
+        print(f"Elapsed seconds: {elapsed}")
+    if envelope.get("measurement_errors"):
+        print("Some provider measurements were invalid; affected values are unavailable. Inspect the private receipt for fields; the task outcome is assessed separately.")
+    if envelope.get("needs_attention") and "task_submission" in envelope:
+        submission = envelope["task_submission"]
+        print("Recorded task submission: " + (submission if isinstance(submission, str)
+              and submission in ("not_submitted", "requested", "accepted") else "unknown")
+              + "; acceptance is not task completion.")
     if envelope["session_id"]:
         print(f"Peer session: {envelope['session_id']}")
     else:

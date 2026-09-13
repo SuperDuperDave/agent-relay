@@ -24,6 +24,8 @@ OTHER_THREAD = "20000000-0000-4000-8000-000000000002"
 TURN = "30000000-0000-4000-8000-000000000003"
 OTHER_TURN = "40000000-0000-4000-8000-000000000004"
 ANSWER = "Scoped final answer 雪"
+COUNTS = {"totalTokens": 30, "inputTokens": 20, "cachedInputTokens": 5,
+          "outputTokens": 10, "reasoningOutputTokens": 3}
 
 
 SERVER = r'''
@@ -126,6 +128,11 @@ def item(text=ANSWER, *, phase="final_answer", thread=THREAD, turn=TURN, kind="a
 def completed(*, thread=THREAD, turn=TURN, status="completed", error=None):
     return {"method": "turn/completed", "params": {"threadId": thread,
             "turn": {"id": turn, "status": status, "items": [], "error": error}}}
+
+
+def usage_notification(usage, *, thread=THREAD, turn=TURN):
+    return {"method": "thread/tokenUsage/updated", "params": {
+        "threadId": thread, "turnId": turn, "tokenUsage": usage}}
 
 
 class CodexProtocolTests(unittest.TestCase):
@@ -487,16 +494,208 @@ class CodexProtocolTests(unittest.TestCase):
         self.assertTrue(result["stdout_observation"]["truncated"])
 
     def test_usage_notification_retains_native_counts_without_billing_claim(self):
-        counts = {"totalTokens": 30, "inputTokens": 20, "cachedInputTokens": 5,
-                  "outputTokens": 10, "reasoningOutputTokens": 3}
-        usage = {"total": counts, "last": counts, "modelContextWindow": 1000}
-        self.configure(events=[{"method": "thread/tokenUsage/updated", "params": {
-            "threadId": THREAD, "turnId": TURN, "tokenUsage": usage}}, item(), completed()])
+        usage = {"total": {**COUNTS, "unknownCounter": 99}, "last": COUNTS,
+                 "modelContextWindow": 1000, "unknownMeasurement": "fixture extension"}
+        self.configure(events=[usage_notification(usage), item(), completed()])
         code, result, _ = self.invoke()
         self.assertEqual(0, code, result)
-        self.assertEqual(counts, result["usage"]["total"])
-        self.assertEqual(counts, result["usage"]["last"])
+        self.assertEqual(COUNTS, result["usage"]["total"])
+        self.assertEqual(COUNTS, result["usage"]["last"])
+        self.assertEqual("native_thread_last_and_total", result["usage_scope_id"])
+        self.assertEqual(1000, result["model_context_window"])
+        self.assertEqual([], result.get("measurement_errors", []))
         self.assertEqual("unknown", result["actual_billed_cost"])
+
+    def test_invalid_context_window_and_duration_do_not_change_completed_turn(self):
+        terminal = completed()
+        terminal["params"]["turn"]["durationMs"] = "fixture-invalid-duration"
+        usage = {"last": COUNTS, "total": COUNTS, "modelContextWindow": False}
+        self.configure(events=[usage_notification(usage), item(), terminal])
+        code, result, _ = self.invoke()
+        self.assertEqual(0, code, result)
+        self.assertEqual("returned", result["state"])
+        self.assertEqual(ANSWER, result["result"])
+        self.assertFalse(result["needs_attention"])
+        self.assertEqual({"last": COUNTS, "total": COUNTS}, result["usage"])
+        self.assertIsNone(result["model_context_window"])
+        self.assertIsNone(result["provider_duration_ms"])
+        self.assertEqual({"model_context_window", "provider_duration_ms"},
+                         set(result["measurement_errors"]))
+        self.assertEqual(2, len(result["measurement_errors"]))
+        self.assertNotIn("fixture-invalid-duration", json.dumps(result))
+
+    def test_invalid_usage_counter_preserves_answer_and_other_native_measurements(self):
+        for invalid in (-1, True, 1.5, "fixture-invalid-counter", [], {}):
+            with self.subTest(invalid=invalid):
+                usage = {"last": {**COUNTS, "inputTokens": invalid}, "total": COUNTS}
+                self.configure(events=[usage_notification(usage), item(), completed()])
+                code, result, directory = self.invoke()
+                self.assertEqual(0, code, result)
+                self.assertEqual("returned", result["state"])
+                self.assertEqual(ANSWER, result["result"])
+                self.assertFalse(result["needs_attention"])
+                self.assertEqual({**COUNTS, "inputTokens": None}, result["usage"]["last"])
+                self.assertEqual(COUNTS, result["usage"]["total"])
+                self.assertEqual(["usage.last.inputTokens"], result["measurement_errors"])
+                self.assertEqual("native_thread_last_and_total", result["usage_scope_id"])
+                self.assertEqual("unknown", result["actual_billed_cost"])
+                self.assertEqual("call\n", self.calls.read_text())
+                self.assertEqual(result, json.loads((directory / "result.json").read_text()))
+                raw = [json.loads(line) for line in (directory / "stdout.json").read_text().splitlines()]
+                self.assertIn(usage_notification(usage), raw, "retain the original native measurement")
+                self.assertIn(item(), raw)
+                self.assertIn(completed(), raw)
+                self.assertNotIn("fixture-invalid-counter", json.dumps(result))
+
+    def test_invalid_usage_object_or_part_is_unavailable_without_losing_answer(self):
+        cases = [("fixture-invalid-usage", None, ["usage"]),
+                 ({"last": [], "total": COUNTS}, {"last": None, "total": COUNTS}, ["usage.last"]),
+                 ({"last": COUNTS, "total": False}, {"last": COUNTS, "total": None}, ["usage.total"])]
+        for usage, expected, errors in cases:
+            with self.subTest(usage=usage):
+                self.configure(events=[usage_notification(usage), item(), completed()])
+                code, result, _ = self.invoke()
+                self.assertEqual(0, code, result)
+                self.assertEqual(ANSWER, result["result"])
+                self.assertFalse(result["needs_attention"])
+                self.assertEqual(expected, result["usage"])
+                self.assertEqual(errors, result["measurement_errors"])
+                self.assertNotIn("fixture-invalid-usage", json.dumps(result))
+
+    def test_missing_and_null_usage_counters_stay_unknown_without_inventing_zero(self):
+        usage = {"last": {"inputTokens": 0, "outputTokens": None}, "total": {}}
+        self.configure(events=[usage_notification(usage), item(), completed()])
+        code, result, _ = self.invoke()
+        self.assertEqual(0, code, result)
+        self.assertEqual(ANSWER, result["result"])
+        self.assertFalse(result["needs_attention"])
+        self.assertEqual({name: 0 if name == "inputTokens" else None for name in COUNTS},
+                         result["usage"]["last"])
+        self.assertEqual(dict.fromkeys(COUNTS), result["usage"]["total"])
+        self.assertEqual([], result.get("measurement_errors", []))
+
+    def test_latest_usage_replaces_stale_counters_and_deduplicates_named_errors(self):
+        earlier = {"last": COUNTS, "total": COUNTS, "modelContextWindow": 1000}
+        latest = {"last": {**COUNTS, "inputTokens": "fixture-invalid-counter", "outputTokens": 42},
+                  "total": []}
+        self.configure(events=[usage_notification(earlier),
+                               *[usage_notification(latest) for _ in range(40)], item(), completed()])
+        code, result, _ = self.invoke()
+        self.assertEqual(0, code, result)
+        self.assertEqual(ANSWER, result["result"])
+        self.assertFalse(result["needs_attention"])
+        self.assertEqual({**COUNTS, "inputTokens": None, "outputTokens": 42}, result["usage"]["last"])
+        self.assertIsNone(result["usage"]["total"])
+        self.assertIsNone(result["model_context_window"])
+        self.assertEqual({"usage.last.inputTokens", "usage.total"}, set(result["measurement_errors"]))
+        self.assertEqual(2, len(result["measurement_errors"]))
+        self.assertNotIn("fixture-invalid-counter", json.dumps(result))
+
+    def test_valid_latest_usage_clears_previous_measurement_errors_but_keeps_raw_history(self):
+        earlier = {"last": COUNTS, "total": COUNTS, "modelContextWindow": 1000}
+        latest_counts = {name: count * 2 for name, count in COUNTS.items()}
+        latest = {"last": latest_counts, "total": latest_counts, "modelContextWindow": 2000}
+        invalid_updates = ("fixture-invalid-usage", {
+            "last": {**COUNTS, "inputTokens": -1}, "total": False, "modelContextWindow": False})
+        for invalid in invalid_updates:
+            with self.subTest(invalid=invalid):
+                self.configure(events=[usage_notification(earlier), usage_notification(invalid),
+                                       usage_notification(latest), item(), completed()])
+                code, result, directory = self.invoke()
+                self.assertEqual(0, code, result)
+                self.assertEqual("returned", result["state"])
+                self.assertEqual(ANSWER, result["result"])
+                self.assertFalse(result["needs_attention"])
+                self.assertEqual({"last": latest_counts, "total": latest_counts}, result["usage"])
+                self.assertEqual(2000, result["model_context_window"])
+                self.assertEqual([], result.get("measurement_errors", []))
+                raw = [json.loads(line) for line in (directory / "stdout.json").read_text().splitlines()]
+                self.assertIn(usage_notification(invalid), raw)
+                self.assertIn(usage_notification(latest), raw)
+                self.assertEqual("call\n", self.calls.read_text())
+
+    def test_missing_or_null_latest_usage_payload_clears_old_measurements_with_named_warning(self):
+        earlier = {"last": COUNTS, "total": COUNTS, "modelContextWindow": 1000}
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                latest = usage_notification(None)
+                if missing:
+                    del latest["params"]["tokenUsage"]
+                self.configure(events=[usage_notification(earlier), latest, item(), completed()])
+                code, result, _ = self.invoke()
+                self.assertEqual(0, code, result)
+                self.assertEqual("returned", result["state"])
+                self.assertEqual(ANSWER, result["result"])
+                self.assertFalse(result["needs_attention"])
+                self.assertIsNone(result["usage"])
+                self.assertIsNone(result["model_context_window"])
+                self.assertEqual(["usage"], result["measurement_errors"])
+                self.assertEqual("native_thread_last_and_total", result["usage_scope_id"])
+                self.assertEqual("call\n", self.calls.read_text())
+
+    def test_invalid_usage_does_not_halt_later_approval_control_handling(self):
+        usage = {"last": {**COUNTS, "inputTokens": False}, "total": COUNTS}
+        request = {"id": "approval-after-invalid-usage", "method": "item/commandExecution/requestApproval",
+                   "params": {"threadId": THREAD, "turnId": TURN, "itemId": "fixture-approval",
+                              "command": "fixture command", "cwd": str(self.repo)}}
+        self.configure(events=[usage_notification(usage), request, item(), completed()])
+        code, result, _ = self.invoke()
+        self.assertEqual(0, code, result)
+        self.assertEqual("returned", result["state"])
+        self.assertEqual(ANSWER, result["result"])
+        response = next(message for message in self.recorded_requests() if message.get("id") == request["id"])
+        self.assertEqual({"decision": "decline"}, response["result"])
+        self.assertTrue(result["needs_attention"])
+        self.assertTrue(result["permission_denials"])
+        self.assertEqual(["usage.last.inputTokens"], result["measurement_errors"])
+        self.assertEqual("call\n", self.calls.read_text())
+
+    def test_foreign_usage_cannot_replace_measurements_or_create_warnings(self):
+        related = {"last": COUNTS, "total": COUNTS}
+        foreign = {"last": {**COUNTS, "inputTokens": 999}, "total": COUNTS}
+        events = [usage_notification(related)]
+        for thread, turn in ((OTHER_THREAD, TURN), (THREAD, OTHER_TURN)):
+            missing = usage_notification(None, thread=thread, turn=turn)
+            del missing["params"]["tokenUsage"]
+            events.extend([usage_notification(foreign, thread=thread, turn=turn),
+                           usage_notification("fixture-invalid-foreign-usage", thread=thread, turn=turn),
+                           usage_notification(None, thread=thread, turn=turn), missing])
+        self.configure(events=[*events, item(), completed()])
+        code, result, _ = self.invoke()
+        self.assertEqual(0, code, result)
+        self.assertEqual(ANSWER, result["result"])
+        self.assertFalse(result["needs_attention"])
+        self.assertEqual(related, result["usage"])
+        self.assertEqual([], result.get("measurement_errors", []))
+
+    def test_foreign_usage_cannot_clear_related_measurement_warnings(self):
+        related = {"last": {**COUNTS, "inputTokens": -1}, "total": COUNTS, "modelContextWindow": False}
+        foreign = {"last": COUNTS, "total": COUNTS, "modelContextWindow": 1000}
+        events = [usage_notification(related)]
+        events.extend(usage_notification(foreign, thread=thread, turn=turn)
+                      for thread, turn in ((OTHER_THREAD, TURN), (THREAD, OTHER_TURN)))
+        self.configure(events=[*events, item(), completed()])
+        code, result, _ = self.invoke()
+        self.assertEqual(0, code, result)
+        self.assertEqual(ANSWER, result["result"])
+        self.assertFalse(result["needs_attention"])
+        self.assertEqual({"last": {**COUNTS, "inputTokens": None}, "total": COUNTS}, result["usage"])
+        self.assertIsNone(result["model_context_window"])
+        self.assertEqual({"usage.last.inputTokens", "model_context_window"},
+                         set(result["measurement_errors"]))
+
+    def test_invalid_usage_does_not_relax_final_answer_or_terminal_identity_requirements(self):
+        invalid = usage_notification({"last": {**COUNTS, "inputTokens": -1}, "total": COUNTS})
+        cases = ([item()], [completed()],
+                 [item(), completed(thread=OTHER_THREAD)],
+                 [item(), completed(turn=OTHER_TURN)],
+                 [item(thread=OTHER_THREAD), completed()])
+        for events in cases:
+            with self.subTest(events=events):
+                self.configure(events=[invalid, *events])
+                result = self.assert_attention(self.invoke())
+                self.assertEqual(["usage.last.inputTokens"], result["measurement_errors"])
+                self.assertNotEqual("returned", result["state"])
 
     def test_user_approval_requests_are_declined_without_permission_expansion(self):
         for method in ("item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"):

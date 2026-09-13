@@ -13,6 +13,8 @@ import subprocess
 import time
 
 from .native_io import MAX_OUTPUT as _MAX_OUTPUT, Observation, ProtocolError as _ProtocolError, decode, identity as _identity
+from .native_io import (USAGE_SCOPES, measurement_error, measurement_number,
+                        measurement_fields, measurement_scope, replace_measurement_errors)
 
 
 _MAX_PENDING = 128
@@ -276,9 +278,8 @@ class _Driver:
                 for item in turn["items"]:
                     self.item(item)
                 self.terminal = turn["status"]
-                duration = turn.get("durationMs")
-                if type(duration) is int and duration >= 0:
-                    self.envelope["provider_duration_ms"] = duration
+                self.envelope["provider_duration_ms"] = measurement_number(
+                    turn.get("durationMs"), self.envelope, "provider_duration_ms", integer=True)
                 self.finish(require_answer=False)
                 if self.control is not None:
                     self.control.stop_accepting("The native turn has completed.")
@@ -305,13 +306,21 @@ class _Driver:
         elif method == "thread/tokenUsage/updated":
             usage = params.get("tokenUsage")
             names = ("inputTokens", "outputTokens", "cachedInputTokens", "reasoningOutputTokens", "totalTokens")
-            if (not isinstance(usage, dict)
-                    or any(not isinstance(usage.get(part), dict)
-                           or any(type(usage[part].get(name)) is not int or usage[part][name] < 0
-                                  for name in names) for part in ("last", "total"))):
-                raise _ProtocolError("Malformed native token usage; inspect retained output.")
-            self.envelope["usage"] = {part: {name: usage[part][name] for name in names}
-                                      for part in ("last", "total")}
+            replace_measurement_errors(self.envelope, {}, "usage", "model_context_window")
+            if not isinstance(usage, dict):
+                measurement_error(self.envelope, "usage")
+                self.envelope["usage"] = None
+                self.envelope["model_context_window"] = None
+            else:
+                counters = {}
+                for part in ("last", "total"):
+                    values = measurement_fields(usage.get(part), self.envelope,
+                                                "usage." + part, names, missing=True)
+                    counters[part] = None if values is None else {name: values[name] for name in names}
+                self.envelope["usage"] = counters
+                self.envelope["model_context_window"] = measurement_number(
+                    usage.get("modelContextWindow"), self.envelope, "model_context_window", integer=True)
+            measurement_scope(self.envelope, "usage_scope", "native_thread_last_and_total", USAGE_SCOPES)
 
     def message(self, body):
         value = decode(body)

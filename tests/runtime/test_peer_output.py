@@ -73,6 +73,110 @@ class PeerOutputTests(unittest.TestCase):
             f"Peer session: {envelope['session_id']}\n"
             f"Local evidence: {envelope['evidence_directory']}\n", output)
 
+    def test_elapsed_time_and_requested_session_mode_are_typed_observations(self):
+        for resumed, mode in ((False, "fresh"), (True, "resume")):
+            with self.subTest(resumed=resumed):
+                output = self.display(elapsed_seconds=3.25, resumed=resumed)
+                self.assertIn("Elapsed seconds:", output)
+                self.assertIn("3.25", output)
+                mode_line = next(line for line in output.splitlines() if line.startswith("Requested session mode:"))
+                self.assertIn(mode, mode_line)
+                self.assertNotIn("Needs attention", output)
+        self.assertIn("Elapsed seconds:", self.display(elapsed_seconds=0))
+        for invalid in (None, True, -1, float("inf"), float("nan"), "ARTIFICIAL-PRIVATE-TIMING", {}):
+            with self.subTest(invalid=invalid):
+                output = self.display(elapsed_seconds=invalid, resumed=invalid)
+                self.assertNotIn("Elapsed seconds:", output)
+                if type(invalid) is not bool:
+                    self.assertNotIn("Requested session mode:", output)
+                self.assertNotIn("ARTIFICIAL-PRIVATE-TIMING", output)
+
+    def test_task_submission_is_shown_only_as_a_typed_attention_observation(self):
+        for submission in ("not_submitted", "requested", "accepted"):
+            with self.subTest(submission=submission):
+                output = self.display(state="uncertain", result=None, needs_attention=True,
+                                      task_submission=submission)
+                self.assertIn("Recorded task submission: " + submission, output)
+                self.assertIn("acceptance is not task completion", output)
+                self.assertNotIn("Recorded task submission:", self.display(task_submission=submission))
+        for invalid in (None, False, [], {}, "ARTIFICIAL-PRIVATE-SUBMISSION"):
+            with self.subTest(invalid=invalid):
+                output = self.display(needs_attention=True, task_submission=invalid)
+                self.assertIn("Recorded task submission: unknown", output)
+                self.assertNotIn("ARTIFICIAL-PRIVATE-SUBMISSION", output)
+
+    def test_optional_native_measurements_do_not_reclassify_a_valid_answer(self):
+        native_fields = {"num_turns": ("provider_turns", 2),
+                         "duration_ms": ("provider_duration_ms", 1250),
+                         "total_cost_usd": ("estimated_cost_usd", 0.0125)}
+        valid = {name: expected for name, (_, expected) in native_fields.items()}
+        for native_field, (field, _) in native_fields.items():
+            for invalid in (-1, True, "12", "ARTIFICIAL-PRIVATE-MEASUREMENT"):
+                with self.subTest(field=field, invalid=invalid):
+                    envelope = self.interpret(**{**valid, native_field: invalid})
+                    self.assertEqual("returned", envelope["state"])
+                    self.assertEqual("The reviewed change handles the boundary case.", envelope["result"])
+                    self.assertFalse(envelope["needs_attention"])
+                    self.assertEqual([], envelope["permission_denials"])
+                    self.assertIsNone(envelope[field])
+                    self.assertEqual([field], envelope["measurement_errors"])
+                    for other, expected in native_fields.values():
+                        if other != field:
+                            self.assertEqual(expected, envelope[other])
+                    output = self.display(**envelope)
+                    self.assertIn("Some provider measurements were invalid", output)
+                    self.assertNotIn("Needs attention", output)
+                    self.assertNotIn("ARTIFICIAL-PRIVATE-MEASUREMENT", output)
+
+    def test_optional_usage_keeps_valid_counters_and_qualifies_private_model_metrics(self):
+        private = "ARTIFICIAL-PRIVATE-MODEL-MEASUREMENT"
+        envelope = self.interpret(
+            usage={"input_tokens": True, "output_tokens": 4,
+                   "cache_creation": {"ephemeral_5m_input_tokens": -1, "ephemeral_1h_input_tokens": 9}},
+            modelUsage={private: {"inputTokens": private, "outputTokens": 6, "costUSD": 0.125}},
+            permission_denials=[{"tool_name": "Write", "tool_use_id": "fixture-tool",
+                                "tool_input": private}])
+        self.assertEqual("returned", envelope["state"])
+        self.assertIsNotNone(envelope["result"])
+        self.assertTrue(envelope["needs_attention"])
+        self.assertEqual([{"tool_name": "Write", "tool_use_id": "fixture-tool"}], envelope["permission_denials"])
+        self.assertEqual({"input_tokens": None, "output_tokens": 4,
+                          "cache_creation": {"ephemeral_5m_input_tokens": None, "ephemeral_1h_input_tokens": 9}},
+                         envelope["usage"])
+        self.assertEqual({"inputTokens": None, "outputTokens": 6, "costUSD": 0.125},
+                         envelope["model_usage"][private])
+        self.assertEqual({"usage.input_tokens", "usage.cache_creation.ephemeral_5m_input_tokens",
+                          "model_usage.model.inputTokens"}, set(envelope["measurement_errors"]))
+        self.assertNotIn(private, json.dumps(envelope["measurement_errors"]))
+        self.assertNotIn(private, self.display(**envelope))
+        self.assertEqual("native_main_loop", envelope["usage_scope_id"])
+        self.assertEqual("native_query_cumulative", envelope["model_usage_scope_id"])
+        self.assertEqual("cumulative_through_latest_native_result", envelope["cost_scope_id"])
+
+    def test_absent_null_and_unknown_optional_fields_do_not_invent_measurement_errors(self):
+        for changes in ({}, {"num_turns": None, "duration_ms": None, "total_cost_usd": None,
+                             "usage": None, "modelUsage": None},
+                        {"usage": {"input_tokens": None, "future_counter": "uninterpreted"},
+                         "modelUsage": {"fixture-model": {"outputTokens": None, "future_counter": "uninterpreted"}}}):
+            with self.subTest(changes=changes):
+                envelope = self.interpret(**changes)
+                self.assertEqual("returned", envelope["state"])
+                self.assertFalse(envelope["needs_attention"])
+                self.assertFalse(envelope.get("measurement_errors"))
+                self.assertNotIn("Some provider measurements were invalid", self.display(**envelope))
+
+    def test_malformed_required_result_fields_still_refuse_an_answer(self):
+        for changes in ({"result": None}, {"is_error": "false"}, {"subtype": []},
+                        {"errors": "ARTIFICIAL-PRIVATE-ERROR"}, {"errors": [7]},
+                        {"permission_denials": ["ARTIFICIAL-PRIVATE-DENIAL"]},
+                        {"session_id": "00000000-0000-4000-8000-000000000002"}):
+            with self.subTest(changes=changes):
+                envelope = self.interpret(num_turns="invalid optional metric", **changes)
+                self.assertEqual("uncertain", envelope["state"])
+                self.assertIsNone(envelope["result"])
+                self.assertTrue(envelope["needs_attention"])
+                self.assertFalse(envelope.get("measurement_errors"))
+
     def test_provider_error_without_answer_exposes_cause_and_retained_diagnostic(self):
         envelope = self.interpret(subtype="error_max_turns", is_error=True, result=None,
                                   errors=["Reached the configured turn limit"])

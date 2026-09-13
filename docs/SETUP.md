@@ -171,15 +171,19 @@ plan or a listed trusted hook does not prove hook delivery or native tool execut
 Use the copyable [first-collaboration prompt](PEER.md#first-collaboration) once
 preparation and any required native trust review are complete. It authorizes
 one read-only native review and asks the calling agent to inspect and assess the
-returned findings. Peer calls have no extra interactive confirmation:
+returned findings. It addresses your current unresolved project change or
+question, with a documented-feature trace as a fallback. Peer calls have no extra
+interactive confirmation:
 `multithread peer claude --json` executes the call; add `--dry-run` to inspect
 without execution.
 
 Check the [result and any unresolved work](PEER.md#read-the-result-before-continuing).
 An unavailable provider, refused action, uncertain outcome, returned answer and
 completed review establish different things. If further work is warranted and
-authorized, [resume the exact returned native session](PEER.md#follow-up-in-the-same-native-session)
-in the same checkout. The peer guide separately covers [input to a running call](PEER.md#update-a-running-peer).
+authorized, [choose a fresh call or exact-session follow-up](PEER.md#follow-up-in-the-same-native-session):
+resume in the same checkout when prior investigation helps, or start fresh for
+independent judgment or a different scope. The peer guide includes a continuation
+packet and separately covers [input to a running call](PEER.md#update-a-running-peer).
 
 Calls use the existing provider's normal environment and permission mode.
 Subscription sign-in can be used; API keys or other provider configuration can

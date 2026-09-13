@@ -16,6 +16,8 @@ import time
 import uuid as uuid_module
 
 from .native_io import MAX_OUTPUT, Observation, ProtocolError, decode, identity
+from .native_io import (USAGE_SCOPES, MODEL_USAGE_SCOPES, COST_SCOPES,
+                        claude_measurements, measurement_scope, replace_measurement_errors)
 
 
 _MAX_INPUTS = 128
@@ -283,7 +285,7 @@ class _Driver:
         denials = value.get("permission_denials", [])
         success = subtype == "success"
         if (not isinstance(subtype, str) or type(is_error) is not bool
-                or type(value.get("num_turns")) is not int or not identity(value.get("uuid"))
+                or not identity(value.get("uuid"))
                 or (success and not isinstance(text, str))
                 or (not success and subtype not in _ERROR_SUBTYPES)):
             raise ProtocolError("Unsupported final native result; inspect retained output before continuing.")
@@ -297,21 +299,23 @@ class _Driver:
         for item in denials if related else []:
             self.detail(self.denials, {"tool_name": item.get("tool_name") if identity(item.get("tool_name")) else None,
                                        "tool_use_id": item.get("tool_use_id") if identity(item.get("tool_use_id")) else None})
-        usage = value.get("usage")
-        cost = value.get("total_cost_usd")
+        observation = {}
+        measurements = claude_measurements(value, observation)
         origin = value.get("origin")
         origin_kind = origin.get("kind") if isinstance(origin, dict) else None
         record = {"uuid": value["uuid"], "subtype": subtype, "is_error": is_error,
-                  "num_turns": value["num_turns"], "answered": uuids, "related": related,
+                  "num_turns": measurements["provider_turns"], "answered": uuids, "related": related,
                   "origin_kind": origin_kind if identity(origin_kind) else None,
                   "stop_reason": value.get("stop_reason") if isinstance(value.get("stop_reason"), str) else None,
                   "terminal_reason": value.get("terminal_reason") if identity(value.get("terminal_reason")) else None,
-                  "duration_ms": value.get("duration_ms") if type(value.get("duration_ms")) is int else None,
+                  "duration_ms": measurements["provider_duration_ms"],
                   "has_result_text": isinstance(text, str),
                   "result_excerpt": text[:2000] if isinstance(text, str) else None,
                   "result_excerpt_truncated": isinstance(text, str) and len(text) > 2000,
-                  "usage_scope": "this native turn", "usage": usage if isinstance(usage, dict) else None,
-                  "cumulative_cost_usd": cost if type(cost) in (int, float) else None}
+                  "usage_scope": "this native turn", "usage": measurements["usage"],
+                  "cumulative_cost_usd": measurements["estimated_cost_usd"]}
+        if observation.get("measurement_errors"):
+            record["measurement_errors"] = observation["measurement_errors"]
         if len(self.results) < _MAX_RESULTS:
             self.results.append(record)
         else:
@@ -321,18 +325,20 @@ class _Driver:
             self.answer = text
         # Later totals restate the same cumulative scope; they are never summed.
         self.envelope["estimated_cost_usd"] = record["cumulative_cost_usd"]
-        self.envelope["cost_scope"] = "cumulative through the latest native result; an estimate, not billing"
-        self.envelope["model_usage"] = value.get("modelUsage") if isinstance(value.get("modelUsage"), dict) else None
-        self.envelope["model_usage_scope"] = "latest cumulative query-stream totals; includes native subagents and compaction, not all provider helper calls"
+        measurement_scope(self.envelope, "cost_scope", "cumulative_through_latest_native_result", COST_SCOPES)
+        self.envelope["model_usage"] = measurements["model_usage"]
+        measurement_scope(self.envelope, "model_usage_scope", "native_query_cumulative", MODEL_USAGE_SCOPES)
+        replace_measurement_errors(self.envelope, observation, "estimated_cost_usd", "model_usage")
         if not related:
             # Background/task-notification results can share this session while
             # answering none of our messages. Retain them without routing their
             # answer, errors or terminal status to this call's task.
             return
         self.last_related = record
+        replace_measurement_errors(self.envelope, observation, "usage", "provider_turns", "provider_duration_ms")
         self.failed_related = self.failed_related or is_error or not success
         self.envelope["usage"] = record["usage"]
-        self.envelope["usage_scope"] = "latest related native result; main loop only, not the whole call"
+        measurement_scope(self.envelope, "usage_scope", "latest_related_native_result", USAGE_SCOPES)
         self.cover(uuids)
         self.answered(uuids, persist=False)
         # Record the observed result before an independent mailbox write can

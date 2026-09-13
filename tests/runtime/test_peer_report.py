@@ -294,6 +294,65 @@ class PeerReportTests(unittest.TestCase):
         self.assertEqual("cumulative_through_latest_native_result", call["cost_scope"])
         self.assertEqual("unknown", call["actual_billed_cost"])
 
+    def test_stable_scope_identifiers_survive_changed_or_missing_native_prose(self):
+        for usage in ("native_main_loop", "latest_related_native_result", "native_thread_last_and_total"):
+            for prose in ({}, {"usage_scope": CANARY, "cost_scope": CANARY}):
+                with self.subTest(usage=usage, prose=prose):
+                    call = self.reported(usage_scope_id=usage,
+                        cost_scope_id="cumulative_through_latest_native_result", **prose)
+                    self.assertEqual(usage, call["provider_measurement_scope"])
+                    self.assertEqual("cumulative_through_latest_native_result", call["cost_scope"])
+                    code, output = self.invoke(structured=False)
+                    self.assertEqual(0, code)
+                    self.assertIn("Recorded call: claude / returned", output)
+
+    def test_explicit_unknown_scope_never_falls_back_to_recognized_legacy_prose(self):
+        for identifier in (CANARY, None, False, [], {}):
+            with self.subTest(identifier=identifier):
+                call = self.reported(usage_scope_id=identifier, cost_scope_id=identifier,
+                    usage_scope="latest related native result; main loop only, not the whole call",
+                    cost_scope="cumulative through the latest native result; an estimate, not billing")
+                self.assertEqual("unknown", call["provider_measurement_scope"])
+                self.assertEqual("unknown", call["cost_scope"])
+
+    def test_legacy_usage_scope_prose_remains_readable_without_an_identifier(self):
+        for prose, scope in (
+            ("this native query's main loop; excludes subagents", "native_main_loop"),
+            ("latest related native result; main loop only, not the whole call", "latest_related_native_result"),
+            ("native thread's last request and running totals; not this call's incremental usage",
+             "native_thread_last_and_total"),
+        ):
+            with self.subTest(scope=scope):
+                self.assertEqual(scope, self.reported(usage_scope=prose)["provider_measurement_scope"])
+
+    def test_recorded_measurement_errors_survive_normalized_nulls_without_private_paths(self):
+        call = self.reported(provider_turns=None, provider_duration_ms=12, estimated_cost_usd=0.25,
+            measurement_errors=["provider_turns", "usage.input_tokens", "usage.output_tokens",
+                                "model_usage.model.inputTokens", "model_context_window",
+                                CANARY, {CANARY: CANARY}, "usage." + CANARY,
+                                "provider_turns", "usage_like_private_field." + CANARY],
+            usage={CANARY: CANARY}, model_usage={CANARY: CANARY})
+        self.assertEqual("returned", call["state"])
+        self.assertFalse(call["needs_attention"])
+        self.assertIsNone(call["provider_turns"])
+        self.assertEqual(12, call["provider_duration_ms"])
+        self.assertEqual(0.25, call["estimated_cost_usd"])
+        self.assertEqual({"provider_turns", "usage", "model_usage", "model_context_window"},
+                         set(call["invalid_measurements"]))
+        self.assertEqual(4, len(call["invalid_measurements"]))
+        code, output = self.invoke(structured=False)
+        self.assertEqual(0, code)
+        self.assertIn("Invalid recorded measurements (values omitted):", output)
+
+    def test_unknown_or_malformed_measurement_error_metadata_does_not_invent_a_task_failure(self):
+        for errors in (None, CANARY, {CANARY: CANARY}, [CANARY, None, 12, {}],
+                       ["usage_like_private_field.input_tokens"]):
+            with self.subTest(errors=errors):
+                call = self.reported(measurement_errors=errors)
+                self.assertEqual("returned", call["state"])
+                self.assertFalse(call["needs_attention"])
+                self.assertEqual([], call["invalid_measurements"])
+
     def test_recorded_task_submission_is_distinct_from_provider_start_or_completion(self):
         for submission in ("not_submitted", "requested", "accepted"):
             with self.subTest(submission=submission):
