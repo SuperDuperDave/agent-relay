@@ -237,6 +237,7 @@ class PeerReportTests(unittest.TestCase):
             "requested_session_id": CANARY + "-session", "session_id": CANARY + "-session",
             "repo": CANARY + "-repo", "evidence_directory": CANARY + "-directory",
             "argv": [CANARY + "-argument"], "task_sha256": CANARY + "-task-digest",
+            "follow_up_preparation": {"argv_prefix": [CANARY + "-follow-up-argument"]},
             "result": CANARY + "-answer", "partial_result": CANARY + "-partial-answer",
             "message": CANARY + "-message", "terminal_reason": CANARY + "-reason",
             "provider_subtype": CANARY + "-subtype", "native_session_id": CANARY + "-native-id",
@@ -502,6 +503,7 @@ class PeerReportTests(unittest.TestCase):
         self.assertNotIn("fault: reported", output)
         self.assertNotIn("Invalid recorded measurements", output)
         self.assertNotIn("Unavailable stage:", output)
+        self.assertNotIn("Next:", output)
 
     def test_session_identity_reports_attribution_without_exposing_identifiers(self):
         cases = (
@@ -568,6 +570,40 @@ class PeerReportTests(unittest.TestCase):
         self.assertIn("missing", output)
         self.assertNotIn("provider_error", output)
         self.assertNotIn("active", output.lower())
+
+    def test_unavailable_human_reports_offer_one_private_preserving_next_step(self):
+        valid = json.dumps(self.receipt(result=CANARY)).encode("utf-8")
+        cases = (
+            ("missing", None, 0o600,
+             "compare the selected call directory with the original call's retained-evidence location."),
+            ("malformed", b'{"' + CANARY.encode("ascii"), 0o600,
+             "inspect the original private result.json locally for invalid or incomplete data without rewriting it."),
+            ("unavailable", valid, 0o640,
+             "verify the selected directory and receipt against the documented access, ownership, privacy and file-type requirements."),
+            ("unsupported_schema", json.dumps(self.receipt(schema=2, result=CANARY)).encode("utf-8"), 0o600,
+             "select a reviewed reporter that supports the retained receipt's schema, preserving the original receipt."),
+            ("too_large", valid + b" " * 512, 0o600,
+             "inspect the original private receipt locally in bounded portions without truncating or rewriting it."),
+        )
+        for status, body, mode, next_step in cases:
+            with self.subTest(status=status), mock.patch.object(provider, "_MAX_RESULT", 512):
+                self.result.unlink(missing_ok=True)
+                if body is not None:
+                    self.write_bytes(body)
+                    self.result.chmod(mode)
+                code, report = self.invoke()
+                self.assertEqual(1, code)
+                self.assertEqual({"schema": 1, "kind": "peer_report", "report_state": "unavailable",
+                                  "receipt_status": status, "call": None}, report)
+                code, output = self.invoke(structured=False)
+                self.assertEqual(1, code)
+                self.assertIn("Multithread peer report: unavailable", output)
+                self.assertIn("Result receipt: " + status, output)
+                self.assertEqual(["Next: " + next_step],
+                                 [line for line in output.splitlines() if line.startswith("Next:")])
+                self.assertIn("provider activity, cause and workflow completion are not checked", output)
+                self.assertNotIn("Recorded call:", output)
+                self.assertNotIn("Needs attention:", output)
 
     def test_required_fields_and_enums_are_validated_before_reporting(self):
         for key in ("schema", "provider", "state", "provider_started", "needs_attention"):

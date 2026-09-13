@@ -145,7 +145,7 @@ class PeerOutputTests(unittest.TestCase):
         self.assertEqual(before, envelope)
         return output.getvalue()
 
-    def interpret(self, *, process_exit_code=0, **changes):
+    def interpret(self, *, process_exit_code=0, task_delivery=None, **changes):
         temporary = tempfile.TemporaryDirectory(prefix="multithread-peer-output-", dir="/tmp")
         self.addCleanup(temporary.cleanup)
         directory = Path(temporary.name)
@@ -160,6 +160,8 @@ class PeerOutputTests(unittest.TestCase):
         envelope = {"state": "uncertain", "requested_session_id": session,
                     "session_id": None, "result": None, "needs_attention": True,
                     "process_exit_code": process_exit_code, "evidence_directory": str(directory)}
+        if task_delivery is not None:
+            envelope["task_delivery"] = task_delivery
         provider._interpret(directory, envelope)
         self.assertEqual(body, path.read_bytes(), "Interpretation changed retained provider evidence")
         return envelope
@@ -185,6 +187,59 @@ class PeerOutputTests(unittest.TestCase):
             "Assess the answer and durable Multithread evidence; a returned turn is not workflow completion.\n"
             f"Peer session: {envelope['session_id']}\n"
             f"Local evidence: {envelope['evidence_directory']}\n", output)
+
+    def test_incomplete_task_delivery_points_to_private_partial_text_without_accepting_it(self):
+        for partial in ("ARTIFICIAL-PRIVATE-PARTIAL-ANSWER", ""):
+            with self.subTest(has_text=bool(partial)):
+                envelope = self.interpret(task_delivery="uncertain", result=partial)
+                self.assertEqual("uncertain", envelope["state"])
+                self.assertTrue(envelope["needs_attention"])
+                self.assertIsNone(envelope["result"])
+                self.assertEqual(partial, envelope["partial_result"])
+                output = self.display(**envelope)
+                self.assertIn("Multithread peer: uncertain", output)
+                self.assertIn("Needs attention: yes.", output)
+                self.assertIn("Partial result: inspect the private result.json's partial_result field; "
+                              "its text may answer incomplete or other input.", output)
+                self.assertIn("Private result receipt: " + envelope["evidence_directory"] + "/result.json", output)
+                self.assertNotIn("ARTIFICIAL-PRIVATE-PARTIAL-ANSWER", output)
+
+    def test_clean_follow_up_preparation_preserves_exact_argv_and_requires_a_new_task(self):
+        entries = (["/tmp/reviewed tools/multithread", "peer"],
+                   ["/usr/bin/python3", "-I", "-S", "-B", "/tmp/reviewed source/examples/call_peer.py"])
+        for entry in entries:
+            with self.subTest(entry=entry):
+                prefix = [*entry, "codex", "--repo", "/tmp/peer's checkout",
+                          "--multithread", "/tmp/reviewed tools/multithread",
+                          "--provider", "/tmp/reviewed tools/provider", "--resume=-artificial-session",
+                          "--timeout", "600", "--dry-run", "--json", "--task-file"]
+                output = self.display(follow_up_preparation={"argv_prefix": prefix})
+                command = next(line.split(": ", 1)[1] for line in output.splitlines()
+                               if line.startswith("Follow-up preparation: "))
+                self.assertEqual(prefix, shlex.split(command))
+                self.assertIn("assess this result and confirm session ownership and the remaining scope", output)
+                self.assertIn("Append a new task file path to this prefix", output)
+                self.assertIn("dry-run; it does not start the provider", output)
+                self.assertIn("The reviewed change handles the boundary case.", output)
+
+    def test_follow_up_preparation_is_suppressed_when_attention_or_outcome_is_unresolved(self):
+        for state, attention in (("returned", True), ("uncertain", False),
+                                 ("provider_error", False), ("unavailable", False)):
+            with self.subTest(state=state, needs_attention=attention):
+                output = self.display(state=state, needs_attention=attention,
+                    follow_up_preparation={"argv_prefix": ["ARTIFICIAL-PRIVATE-PREFIX", "--resume=fixture"]})
+                self.assertNotIn("Follow-up preparation", output)
+                self.assertNotIn("ARTIFICIAL-PRIVATE-PREFIX", output)
+                self.assertNotIn("--resume", output)
+
+    def test_unusual_follow_up_path_is_exact_json_argv_without_terminal_controls(self):
+        prefix = ["/tmp/provider\n\x1b[31mname", "peer", "--dry-run", "--json", "--task-file"]
+        output = self.display(follow_up_preparation={"argv_prefix": prefix})
+        self.assertNotIn("\x1b", output)
+        self.assertNotIn(prefix[0], output)
+        command = next(line.split(": ", 1)[1] for line in output.splitlines()
+                       if line.startswith("Follow-up preparation (JSON argv): "))
+        self.assertEqual(prefix, json.loads(command))
 
     def test_elapsed_time_and_requested_session_mode_are_typed_observations(self):
         for resumed, mode in ((False, "fresh"), (True, "resume")):

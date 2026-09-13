@@ -209,6 +209,7 @@ class CodexProtocolTests(unittest.TestCase):
         self.assertEqual(state, value["state"])
         self.assertTrue(value["provider_started"])
         self.assertTrue(value["needs_attention"])
+        self.assertNotIn("follow_up_preparation", value)
         self.assertEqual("call\n", self.calls.read_text(), "uncertain calls must not be retried")
         self.assertEqual("not_checked", value["workflow_completion"])
         self.assertEqual(value, json.loads((directory / "result.json").read_text()))
@@ -224,6 +225,7 @@ class CodexProtocolTests(unittest.TestCase):
         self.assertEqual(THREAD, result["session_id"])
         self.assertEqual(TURN, result["turn_id"])
         self.assertFalse(result["needs_attention"])
+        self.assertIn("--resume=" + THREAD, result["follow_up_preparation"]["argv_prefix"])
         self.assertEqual("not_checked", result["relay_acknowledgement"])
         self.assertEqual("not_checked", result["workflow_completion"])
         receipt = json.loads(self.receipt.read_text())
@@ -284,9 +286,17 @@ class CodexProtocolTests(unittest.TestCase):
         identifier = "native-thread-fixture-opaque"
         self.configure(thread_updates={"id": identifier, "sessionId": identifier},
                        events=[item(thread=identifier), completed(thread=identifier)])
-        code, result, _ = self.invoke("--resume", identifier)
+        code, result, directory = self.invoke("--resume", identifier)
         self.assertEqual(0, code, result)
         self.assertEqual(identifier, result["session_id"])
+        prefix = result["follow_up_preparation"]["argv_prefix"]
+        self.assertEqual([str(self.relay), "peer", "codex", "--repo", str(self.repo),
+                          "--multithread", str(self.relay), "--provider", str(self.provider),
+                          "--resume=" + identifier, "--timeout", "2",
+                          "--dry-run", "--json", "--task-file"], prefix)
+        self.assertNotIn("--max-turns", prefix)
+        self.assertNotIn("--live-input", prefix)
+        self.assertEqual(result, json.loads((directory / "result.json").read_text()))
         resume = next(row for row in self.recorded_requests() if row.get("method") == "thread/resume")
         self.assertEqual(identifier, resume["params"]["threadId"])
 
@@ -425,6 +435,7 @@ class CodexProtocolTests(unittest.TestCase):
         self.assertEqual(0, code, result)
         self.assertEqual("returned", result["state"])
         self.assertTrue(result["needs_attention"])
+        self.assertNotIn("follow_up_preparation", result)
         self.assertEqual(ANSWER, result["result"])
         self.assertEqual(THREAD, result["session_id"])
         self.assertEqual(TURN, result["turn_id"])

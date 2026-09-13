@@ -605,6 +605,33 @@ def _producer_runtime():
     return {"status": "unavailable", "runtime_manifest_sha256": None}
 
 
+def _follow_up_preparation(args, plan, envelope):
+    """Preserve an ended call's invocation as incomplete, dry-run-only argv."""
+    if (plan is None or envelope.get("state") != "returned"
+            or envelope.get("needs_attention") is not False
+            or envelope.get("provider_started") is not True
+            or envelope.get("process_exit_code") != 0
+            or not envelope.get("session_id")
+            or any(key in envelope for key in
+                   ("observed_session_id", "server_cleanup", "control_fault", "evidence_recording"))):
+        return None
+    # prepare checked this exact hook against the selected launcher. Retain its
+    # entry path, as well as the provider's entry, without resolving symlinks.
+    launcher = shlex.split(plan["relay_plan"]["hook_command"])[0]
+    entry = args.report_entry if args.report_entry is not None else [launcher, "peer"]
+    prefix = [*entry, args.client, "--repo", plan["repo"], "--multithread", launcher,
+              "--provider", plan["argv"][0], "--resume=" + envelope["session_id"],
+              "--timeout", str(args.timeout)]
+    if args.max_turns is not None:
+        prefix.extend(["--max-turns", str(args.max_turns)])
+    if args.live_input:
+        prefix.append("--live-input")
+    # Never copy the old task/evidence destination. A bare final option requires
+    # a new task path before parsing can reach stdin or launch preparation.
+    prefix.extend(["--dry-run", "--json", "--task-file"])
+    return {"argv_prefix": prefix}
+
+
 def _run_peer(args, interruption):
     from .peer_control import CallControl, ControlError, ObservedControl
     session = args.resume or (str(uuid.uuid4()) if args.client == "claude" else None)
@@ -618,6 +645,7 @@ def _run_peer(args, interruption):
                 "elapsed_seconds": None, "usage": None, "actual_billed_cost": "unknown",
                 "producer_runtime": _producer_runtime()}
     directory = None
+    plan = None
     process = None
     observer = None
     control = None
@@ -789,10 +817,14 @@ def _run_peer(args, interruption):
             except OSError:
                 envelope["needs_attention"] = True
                 code = code or 1
+    preparation = _follow_up_preparation(args, plan, envelope) if code == 0 else None
+    if preparation is not None:
+        envelope["follow_up_preparation"] = preparation
     if directory is not None:
         try:
             _record(directory, "result.json", envelope)
         except OSError:
+            envelope.pop("follow_up_preparation", None)
             envelope["needs_attention"] = True
             envelope["evidence_recording"] = "unavailable; preserve this returned result"
             code = 1
@@ -1010,6 +1042,15 @@ def report_main(argv=None):
             print("Task pipe delivery: " + call["task_delivery"] + "; recorded native-input pending bytes (mode-dependent): "
                   + str(call["native_input_unwritten_bytes"] if call["native_input_unwritten_bytes"] is not None else "unknown")
                   + "; a pipe write does not prove native consumption.")
+        else:
+            next_step = {
+                "missing": "compare the selected call directory with the original call's retained-evidence location.",
+                "malformed": "inspect the original private result.json locally for invalid or incomplete data without rewriting it.",
+                "unavailable": "verify the selected directory and receipt against the documented access, ownership, privacy and file-type requirements.",
+                "unsupported_schema": "select a reviewed reporter that supports the retained receipt's schema, preserving the original receipt.",
+                "too_large": "inspect the original private receipt locally in bounded portions without truncating or rewriting it.",
+            }[report["receipt_status"]]
+            print("Next: " + next_step)
         print("Retained receipt only: provider activity, cause and workflow completion are not checked.")
         print("Review before sharing. Task/answer text, paths, identities, hashes and native diagnostics are excluded.")
     return 0 if report["report_state"] == "reported" else 1
@@ -1022,6 +1063,8 @@ def _display_peer(envelope, *, report_entry=None):
         print("Needs attention: yes.")
     if envelope["result"]:
         print(envelope["result"])
+    elif isinstance(envelope.get("partial_result"), str):
+        print("Partial result: inspect the private result.json's partial_result field; its text may answer incomplete or other input.")
     results = envelope.get("native_results", [])
     if results and not results[-1]["related"] and results[-1].get("result_excerpt"):
         print("Additional native session result (not attributed to this call's submitted input):")
@@ -1114,3 +1157,8 @@ def _display_peer(envelope, *, report_entry=None):
             print("The support report omits the answer and private detail; it does not assess task completion.")
         else:
             print("Next: inspect the reported condition before deciding whether to retry.")
+    preparation = envelope.get("follow_up_preparation")
+    if preparation and envelope["state"] == "returned" and not envelope.get("needs_attention"):
+        print("Before follow-up, assess this result and confirm session ownership and the remaining scope.")
+        _display_command("Follow-up preparation", preparation["argv_prefix"])
+        print("Append a new task file path to this prefix to prepare a dry-run; it does not start the provider.")
