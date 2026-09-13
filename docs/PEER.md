@@ -32,7 +32,7 @@ total effort.
 |---|---|---|
 | A sensitive change or architectural choice | Challenge the assumptions, identify failure cases and inspect the relevant code/tests. | Check the cited evidence and resolve material findings against the task's acceptance criteria. |
 | Repeated attempts are not moving the task forward | Examine the retained attempts and propose a different explanation or approach. | Test the explanation against existing evidence before repeating or expanding the work. |
-| A design works but does not achieve the intended look and feel | Critique the actual rendered design against the user's references and feedback; propose a small number of distinct directions with rationale. | Inspect the result in its intended medium and obtain the required user acceptance. Agent agreement does not establish visual quality. |
+| A design works but does not achieve the intended look and feel | Critique the rendered evidence the peer can actually inspect against the user's references and feedback; state what it could not see and propose a small number of distinct directions with rationale. | Inspect the result in its intended medium and obtain the required user acceptance. Agent agreement does not establish visual quality. |
 
 Give the peer the goal, relevant evidence, scope and expected contribution.
 Ask it to challenge the approach where warranted, rather than agree with the

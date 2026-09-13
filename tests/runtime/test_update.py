@@ -433,6 +433,78 @@ class UpdateCommandTests(ReleaseFixture):
         self.assertIn("codex: unavailable; Synthetic provider executable is not approved.", output)
         self.assertEqual(1, len(self.setup_calls))
 
+    def test_malformed_captured_setup_actions_preserve_success_and_raw_receipt(self):
+        action = self.ready_setup()["next_actions"][0]
+        cases = [(value, "Next actions unavailable:") for value in (None, False, 7, "synthetic text", {})]
+        cases += [([action, value, action], "Next action unavailable:") for value in (None, False, 7, [])]
+        cases += [([action, {**action, "command": value}, action], "Command unavailable:")
+                  for value in (None, False, 7, {}, "synthetic command", [], [self.launcher, None], [self.launcher, 7])]
+        for actions, warning in cases:
+            with self.subTest(actions=actions):
+                self.active = self.active_state("0.1.0", "c" * 64, "d" * 32)
+                self.commands.clear()
+                self.setup_calls.clear()
+                report = self.ready_setup()
+                report["next_actions"] = actions
+                self.setup_response = subprocess.CompletedProcess([], 0, json.dumps(report), "")
+                with mock.patch.object(update, "_finish", wraps=update._finish) as finish:
+                    code, output, _ = self.invoke_human(*self.approval(), "--repo", str(self.repo))
+                self.assertEqual(0, code)
+                finish.assert_called_once()
+                captured = finish.call_args.args[0]
+                self.assertEqual("setup_checked", captured["state"])
+                self.assertEqual("updated", captured["installation"])
+                self.assertEqual(report, captured["repository"])
+                self.assertIn("Runtime installation: updated", output)
+                self.assertIn("Repository readiness: ready", output)
+                self.assertIn(warning, output)
+                if isinstance(actions, list):
+                    self.assertEqual(2, output.count("  Command: " + shlex.join(action["command"])),
+                                     "unusable actions must not hide the valid actions around them")
+                self.assertEqual(1, sum("install" in row for row in self.commands))
+                self.assertEqual([[self.launcher, "setup", "--apply", "--repo", str(self.repo), "--json"]], self.setup_calls)
+                structured = io.StringIO()
+                with redirect_stdout(structured):
+                    update._finish(captured, update._parser(False).parse_args(["--json"]))
+                self.assertEqual(captured, json.loads(structured.getvalue()))
+
+    def test_absent_or_empty_captured_actions_do_not_claim_an_observation_failure(self):
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                self.active = self.active_state("0.1.0", "c" * 64, "d" * 32)
+                report = self.ready_setup()
+                report["next_actions"] = []
+                if missing:
+                    report.pop("next_actions")
+                self.setup_response = subprocess.CompletedProcess([], 0, json.dumps(report), "")
+                code, output, _ = self.invoke_human(*self.approval(), "--repo", str(self.repo))
+                self.assertEqual(0, code)
+                self.assertIn("Repository readiness: ready", output)
+                self.assertNotIn("actions unavailable", output)
+                self.assertNotIn("action unavailable", output)
+                self.assertNotIn("Command unavailable", output)
+
+    def test_malformed_actions_keep_setup_failure_and_distinguish_runtime_detail(self):
+        report = self.ready_setup()
+        report.update(state="not_ready", next_actions=None,
+                      runtime={"state": "unavailable", "message": "Synthetic runtime observation could not be read."})
+        self.setup_response = subprocess.CompletedProcess([], 1, json.dumps(report), "")
+        with mock.patch.object(update, "_finish", wraps=update._finish) as finish:
+            code, output, _ = self.invoke_human(*self.approval(), "--repo", str(self.repo))
+        self.assertEqual(1, code)
+        finish.assert_called_once()
+        captured = finish.call_args.args[0]
+        self.assertEqual("needs_attention", captured["state"])
+        self.assertEqual("updated", captured["installation"])
+        self.assertEqual(report, captured["repository"])
+        self.assertIn("Runtime: unavailable", output)
+        self.assertIn("Runtime detail: Synthetic runtime observation could not be read.", output)
+        self.assertNotIn("Runtime: Synthetic", output)
+        self.assertIn("Next actions unavailable:", output)
+        self.assertIn("Check repository before retrying setup:", output)
+        self.assertEqual(1, sum("install" in row for row in self.commands))
+        self.assertEqual(1, len(self.setup_calls))
+
     def test_human_partial_setup_exposes_captured_failure_and_read_only_continuation(self):
         report = self.ready_setup()
         report.update(state="not_ready", providers={"codex": {"state": "not_checked"}}, next_actions=[])

@@ -445,7 +445,7 @@ def _display_setup(report):
             continue
         print(label + " observation: " + text(entry["state"]))
         if entry.get("message"):
-            print(label + ": " + text(entry["message"]))
+            print(label + " detail: " + text(entry["message"]))
         if isinstance(entry.get("stderr"), str):
             for line in entry["stderr"].splitlines():
                 print(label + " diagnostic: " + text(line))
@@ -453,14 +453,24 @@ def _display_setup(report):
             print(label + " diagnostic output was truncated; use the reported check for details.")
     if report.get("first_collaboration_url"):
         print("First collaboration, when you authorize provider use: " + text(report["first_collaboration_url"]))
-    for action in report.get("next_actions", []):
+    actions = report.get("next_actions", [])
+    if not isinstance(actions, list):
+        print("Next actions unavailable: captured next_actions is not a list.")
+        return
+    for action in actions:
         if isinstance(action, dict):
             label = text(action.get("stage", "Next"))
             print(label + ": " + text(action.get("action", "")))
-            if action.get("command"):
-                _display_command("  Command", action["command"])
-        else:
+            if "command" in action:
+                command = action["command"]
+                if isinstance(command, list) and command and all(isinstance(argument, str) for argument in command):
+                    _display_command("  Command", command)
+                else:
+                    print("  Command unavailable: captured command is not a nonempty list of strings.")
+        elif isinstance(action, str):
             print("Next: " + text(action))
+        else:
+            print("Next action unavailable: captured action is not an object or text.")
 
 
 def _finish(result, args, code=0):

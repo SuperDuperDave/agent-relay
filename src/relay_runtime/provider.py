@@ -480,7 +480,8 @@ def peer_main(argv=None, *, report_entry=None):
 
 def _producer_runtime():
     """Observe this module's retained manifest identity, never current selection."""
-    runtime = getattr(globals().get("__loader__"), "runtime", None)
+    loader = getattr(globals().get("__spec__"), "loader", None)
+    runtime = getattr(loader, "runtime", None)
     digest = getattr(runtime, "digest", None)
     if (isinstance(digest, str) and len(digest) == 64
             and all(character in "0123456789abcdef" for character in digest)):

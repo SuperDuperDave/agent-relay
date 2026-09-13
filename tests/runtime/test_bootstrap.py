@@ -334,6 +334,8 @@ runtime = installation.load_active()
 runtime.install_importer()
 from relay_runtime import provider
 before = provider._producer_runtime()
+provider.__dict__.pop('__loader__', None)
+assert provider._producer_runtime() == before
 installation.activate({second_digest!r}, expected_activation={first.activation_id!r})
 (runtime.origin / 'relay_runtime/provider.py').write_text("raise AssertionError('changed after import')\\n")
 (runtime.origin / 'relay_runtime/__init__.py').unlink()
