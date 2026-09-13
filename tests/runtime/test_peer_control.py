@@ -41,15 +41,22 @@ class PeerControlTests(unittest.TestCase):
         with suppress(Exception):
             self.owner.close("Disposable test fixture ended.")
 
-    def invoke(self, command, *extra, stdin=None):
+    def invoke(self, command, *extra, stdin=None, json_output=True):
         output, errors = io.StringIO(), io.StringIO()
-        arguments = [command, "--call-dir", str(self.directory), "--json", *extra]
+        arguments = [command, "--call-dir", str(self.directory), *(["--json"] if json_output else []), *extra]
         with (redirect_stdout(output), redirect_stderr(errors),
               mock.patch.object(control, "_WAIT_SECONDS", 0),
               mock.patch.object(control.sys, "stdin", mock.Mock(buffer=io.BytesIO(stdin or b"")))):
             code = control.control_main(arguments)
         self.assertTrue(output.getvalue(), errors.getvalue())
-        return code, json.loads(output.getvalue())
+        return code, json.loads(output.getvalue()) if json_output else output.getvalue()
+
+    def unadvertised_call(self, provider):
+        self.owner.close("Switching to an independent fixture without an input target.")
+        self.directory = self.base / (provider + "-" + str(uuid.uuid4()))
+        self.directory.mkdir(mode=0o700)
+        self.owner = control.CallControl(self.directory, provider)
+        self.control_dir = self.directory / "control"
 
     def send(self, request_id=None, *, session=SESSION, turn=TURN, stdin=None):
         identifier = request_id or str(uuid.uuid4())
@@ -86,6 +93,106 @@ class PeerControlTests(unittest.TestCase):
         self.assertEqual(0o700, self.control_dir.stat().st_mode & 0o777)
         for path in self.control_dir.rglob("*"):
             self.assertEqual(0o700 if path.is_dir() else 0o600, path.stat().st_mode & 0o777)
+
+    def test_open_mailbox_without_a_target_reports_not_advertised_and_refuses_input(self):
+        for provider in ("codex", "claude"):
+            with self.subTest(provider=provider):
+                self.unadvertised_call(provider)
+                original = (self.control_dir / "target.json").read_bytes()
+                code, status = self.invoke("status")
+                self.assertEqual(0, code, status)
+                self.assertEqual("open", status["state"])
+                self.assertFalse(status["closed"])
+                self.assertEqual("not_advertised", status["input_target"])
+                self.assertEqual("not_verified", status["live_process"])
+                self.assertIsNone(status["target"]["session_id"])
+                self.assertIsNone(status["target"]["turn_id"])
+                human_code, output = self.invoke("status", json_output=False)
+                self.assertEqual(0, human_code)
+                self.assertIn("No input target has been advertised yet", output)
+                self.assertIn("new input cannot be submitted", output)
+                self.assertEqual(original, (self.control_dir / "target.json").read_bytes())
+                result = self.invoke("send", "--session", SESSION,
+                                     *(["--turn", TURN] if provider == "codex" else []),
+                                     "--message-file", str(self.message))
+                self.assert_refused(result)
+                self.assertEqual([], list((self.control_dir / "requests").iterdir()))
+
+    def test_advertised_target_reports_identity_without_provider_liveness_or_acceptance(self):
+        for provider, turn in (("codex", TURN), ("claude", None)):
+            with self.subTest(provider=provider):
+                self.unadvertised_call(provider)
+                self.owner.set_target(SESSION, turn)
+                path = self.control_dir / "target.json"
+                os.utime(path, (1, 1))  # Retained metadata alone establishes no live process.
+                original = path.read_bytes()
+                code, status = self.invoke("status")
+                self.assertEqual(0, code, status)
+                self.assertEqual("open", status["state"])
+                self.assertFalse(status["closed"])
+                self.assertEqual("advertised", status["input_target"])
+                self.assertEqual("not_verified", status["live_process"])
+                self.assertEqual(SESSION, status["target"]["session_id"])
+                self.assertEqual(turn, status["target"]["turn_id"])
+                human_code, output = self.invoke("status", json_output=False)
+                self.assertEqual(0, human_code)
+                self.assertIn("An exact input target is advertised", output)
+                self.assertIn("native acceptance of new input is not verified", output)
+                self.assertIn("not proof that its owner is still running", output)
+                self.assertEqual(original, path.read_bytes())
+                self.assertEqual([], list((self.control_dir / "requests").iterdir()))
+
+    def test_closed_status_does_not_advertise_retained_identity_as_available_input(self):
+        for provider, turn in (("codex", TURN), ("claude", None)):
+            for advertised in (False, True):
+                with self.subTest(provider=provider, advertised=advertised):
+                    self.unadvertised_call(provider)
+                    if advertised:
+                        self.owner.set_target(SESSION, turn)
+                    self.owner.stop_accepting("The owned call stopped accepting input.")
+                    original = (self.control_dir / "target.json").read_bytes()
+                    code, status = self.invoke("status")
+                    self.assertEqual(0, code, status)
+                    self.assertEqual("closed", status["state"])
+                    self.assertTrue(status["closed"])
+                    self.assertEqual("closed", status["input_target"])
+                    self.assertEqual("not_verified", status["live_process"])
+                    self.assertEqual(SESSION if advertised else None, status["target"]["session_id"])
+                    human_code, output = self.invoke("status", json_output=False)
+                    self.assertEqual(0, human_code)
+                    self.assertIn("The input mailbox is closed to new input", output)
+                    self.assertNotIn("An exact input target is advertised", output)
+                    self.assertEqual(original, (self.control_dir / "target.json").read_bytes())
+
+    def test_malformed_or_missing_target_status_is_unavailable_not_unadvertised(self):
+        path = self.control_dir / "target.json"
+        original = path.read_bytes()
+        valid = json.loads(original)
+        cases = [b"{", None]
+        for change in ({"closed": "unknown"}, {"session_id": SESSION, "turn_id": None},
+                       {"call_id": OTHER}, {"future_state": "starting"}):
+            cases.append(json.dumps({**valid, **change}).encode())
+        for altered in cases:
+            with self.subTest(metadata=altered):
+                if altered is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(altered)
+                try:
+                    code, status = self.invoke("status")
+                    self.assertEqual(1, code, status)
+                    self.assertEqual("unavailable", status["state"])
+                    self.assertEqual("unavailable", status["input_target"])
+                    self.assertEqual("not_verified", status["live_process"])
+                    self.assertNotIn("target", status)
+                    human_code, output = self.invoke("status", json_output=False)
+                    self.assertEqual(1, human_code)
+                    self.assertIn("Peer input: unavailable", output)
+                    self.assertNotIn("No input target has been advertised yet", output)
+                    self.assertEqual(altered, path.read_bytes() if path.exists() else None)
+                finally:
+                    path.write_bytes(original)
+                    path.chmod(0o600)
 
     def test_pending_send_is_not_a_final_receipt_and_dispatch_is_once_only(self):
         identifier = self.queue()

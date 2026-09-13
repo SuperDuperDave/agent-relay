@@ -18,6 +18,37 @@ agent can call Claude or Codex. The initiating agent keeps the continuing goal.
 This command does not control an already-open desktop window or wake an
 independently idle session.
 
+## Choose the contribution you need
+
+Collaboration is optional by default. Use it when a different perspective could
+change a consequential decision, expose an overlooked assumption, or help when
+repeated attempts are not producing a satisfactory result. Complexity is one
+reason to collaborate; uncertainty about a design or a stalled investigation
+can be equally useful reasons. Extra calls consume provider usage, and neither
+agreement nor using two model families guarantees a better answer or lower
+total effort.
+
+| Situation | A useful contribution | How the main thread assesses it |
+|---|---|---|
+| A sensitive change or architectural choice | Challenge the assumptions, identify failure cases and inspect the relevant code/tests. | Check the cited evidence and resolve material findings against the task's acceptance criteria. |
+| Repeated attempts are not moving the task forward | Examine the retained attempts and propose a different explanation or approach. | Test the explanation against existing evidence before repeating or expanding the work. |
+| A design works but does not achieve the intended look and feel | Critique the rendered evidence the peer can actually inspect against the user's references and feedback; state what it could not see and propose a small number of distinct directions with rationale. | Inspect the result in its intended medium and obtain the required user acceptance. Agent agreement does not establish visual quality. |
+
+Give the peer the goal, relevant evidence, scope and expected contribution.
+Ask it to challenge the approach where warranted, rather than agree with the
+main thread. Share only authorized material through supported tools; if the
+peer cannot inspect a rendering or other necessary evidence, keep that limit
+visible. Use a deliberate [same-session follow-up](#follow-up-in-the-same-native-session)
+when discussion would resolve a concrete question. Stop when the contribution
+has been assessed or the remaining work needs a different input; a thread
+allocation is a ceiling, not a quota to fill.
+
+An explicit task requirement takes precedence over the optional default. For
+example, "have Claude review this before we merge" requires that review; a
+suggestion that Claude is available does not. Permission to use a provider and
+a requirement to obtain its contribution are separate. Optional use still
+requires authorization for the actual provider usage and sharing scope.
+
 ## Before calling
 
 Use a functioning provider environment and an enrolled checkout. Follow
@@ -137,6 +168,15 @@ to this unattended client are declined. Multithread never supplies extra permiss
 Multithread retains useful partial output. The initiating agent should report any
 required human decision; it must not silently widen permissions to finish.
 
+If collaboration is optional, continue independent authorized work and disclose
+any missing contribution when assessing the result. If the task requires peer
+work, keep that requirement visibly incomplete in the task's existing plan or
+handoff, with the blocker and useful partial findings. Continue work that does
+not depend on it, but do not silently substitute a solo review or claim the
+required collaboration completed. The first-collaboration prompt above requests
+a peer review as part of its result. A stopped provider turn is not a completed
+task, and an unavailable peer does not itself justify changing approval policy.
+
 ## Read the result before continuing
 
 | Field or state | Meaning |
@@ -248,8 +288,15 @@ or scope retain that uncertainty, including current streaming receipts whose
 capture scope is not recorded. A streaming capture is not labeled as a bounded
 read of a potentially larger retained file. The call-time Multithread version is unrecorded;
 some native receipts include a provider version, but this report excludes native
-strings and does not infer versions from the current installation. Supply known
-versions separately and review the report
+strings and does not infer versions from the current installation. Starting in
+v0.4.4, private request/result receipts record `producer_runtime`: the retained
+runtime manifest SHA256 when this helper was loaded through the verified importer,
+or `unavailable`. That digest identifies the loaded payload, not a release version,
+activation, provider, or hook invocation. Source-entry calls have no retained
+runtime identity; older receipts leave it unrecorded. The report exposes only
+`producer_runtime_identity` (`recorded`, `unavailable`, `not_recorded` or `invalid`),
+never the digest, and invalid auxiliary provenance does not discard a useful
+call outcome. Supply known versions separately and review the report
 before sharing through the [support route](SUPPORT.md#useful-safe-support-information).
 
 ## Follow up in the same native session
@@ -287,6 +334,12 @@ Inspect its current input target:
 ```sh
 ~/.local/bin/multithread peer control status --call-dir /absolute/peer-call --json
 ```
+
+An `open` mailbox does not by itself advertise a usable input target. The
+`input_target` observation distinguishes `not_advertised`, `advertised`, `closed`
+and `unavailable`. An advertised target identifies where input can be addressed;
+it does not prove the owner is still running or guarantee native acceptance.
+Use the exact target and inspect the resulting input receipt.
 
 Use the advertised session and turn to send a Codex update:
 

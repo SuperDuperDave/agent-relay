@@ -130,6 +130,24 @@ class PeerTests(unittest.TestCase):
         self.assertNotIn("--session-id", argv)
         self.assertEqual(self.task.read_bytes(), (self.base / "received-task.txt").read_bytes())
 
+    def test_source_peer_does_not_attribute_selected_launcher_runtime(self):
+        hook = shlex.join([str(self.relay), "--repo", str(self.repo), "provider-hook", "--client", "claude"])
+        unrelated_runtime = {"status": "recorded", "runtime_manifest_sha256": "a" * 64}
+        plan = {"schema": 1, "provider": "claude", "repo": str(self.repo), "hook_command": hook,
+                "native_arguments": self.native_arguments, "launches_provider": False,
+                "changes_provider_settings": False, "changes_permissions": False,
+                "version": "99.0.0-unrelated-fixture", "producer_runtime": unrelated_runtime}
+        self.executable(self.relay, "import json, sys\n"
+                        "assert 'runtime' not in sys.argv, 'unexpected installation query'\n"
+                        f"print({json.dumps(plan)!r})\n")
+        code, result, _ = self.invoke()
+        self.assertEqual(0, code)
+        expected = {"status": "unavailable", "runtime_manifest_sha256": None}
+        self.assertEqual(expected, result["producer_runtime"])
+        evidence = Path(result["evidence_directory"])
+        self.assertEqual(expected, json.loads((evidence / "request.json").read_text())["producer_runtime"])
+        self.assertEqual(expected, json.loads((evidence / "result.json").read_text())["producer_runtime"])
+
     def test_dry_run_has_no_provider_or_evidence_writes(self):
         evidence = self.base / "dry-evidence"
         code, result, _ = self.invoke("--dry-run", output=evidence)

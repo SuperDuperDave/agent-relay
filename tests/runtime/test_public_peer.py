@@ -141,6 +141,11 @@ _PEER = profile._COMMON + "\nprovider_source = " + repr(_FAKE_PROVIDER) + "\nstr
 assert not pathlib.Path("/source").exists() and not pathlib.Path("/bundle").exists()
 launcher = home / ".local/bin/multithread"
 base = [str(launcher), "--repo", str(project), "--json"]
+release_record = json.loads((installation / "releases" / sys.argv[2] / "release.json").read_text())
+runtime_manifest = json.dumps(release_record["runtime"], sort_keys=True,
+                              separators=(",", ":"), ensure_ascii=True).encode()
+producer_runtime = {"status": "recorded",
+                    "runtime_manifest_sha256": hashlib.sha256(runtime_manifest).hexdigest()}
 git_env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null",
                GIT_CONFIG_SYSTEM="/dev/null", GIT_TERMINAL_PROMPT="0",
                GIT_AUTHOR_DATE="2000-01-01T00:00:00+00:00",
@@ -200,6 +205,8 @@ assert "multithread peer: session " + peer["session_id"] in completed.stderr
 assert pathlib.Path("/tmp/fake-native-task.txt").read_bytes() == task
 assert (evidence / "task.txt").read_bytes() == task
 assert json.loads((evidence / "result.json").read_text()) == peer
+assert peer["producer_runtime"] == producer_runtime
+assert json.loads((evidence / "request.json").read_text())["producer_runtime"] == producer_runtime
 assert json.loads((evidence / "request.json").read_text())["task_sha256"] == hashlib.sha256(task).hexdigest()
 assert pathlib.Path("/tmp/fake-native-calls.txt").read_text() == "called\n"
 assert not pathlib.Path("/tmp/peer-shell-canary").exists()
@@ -234,6 +241,7 @@ assert report["call"]["workflow_completion"] == "not_checked"
 serialized = json.dumps(report)
 assert peer["session_id"] not in serialized and peer["result"] not in serialized
 assert str(evidence) not in serialized and str(project) not in serialized
+assert producer_runtime["runtime_manifest_sha256"] not in serialized
 assert snapshot(evidence) == report_before
 assert pathlib.Path("/tmp/fake-native-calls.txt").read_text() == "called\n"
 assert call(base + ["events"]) == events
@@ -253,6 +261,8 @@ for client in ('codex', 'claude'):
     assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
     answer = json.loads(result.stdout)
     assert answer['state'] == 'returned' and answer['needs_attention'] is False, answer
+    assert answer['producer_runtime'] == producer_runtime
+    assert json.loads((directory / 'request.json').read_text())['producer_runtime'] == producer_runtime
     assert answer['workflow_completion'] == answer['relay_acknowledgement'] == 'not_checked'
     # Bind the report to actual driver output, including its measurement labels.
     support = call(base + ['peer', 'report', '--call-dir', str(directory)])['call']
@@ -280,6 +290,7 @@ print(json.dumps({"installed_peer": True, "source_absent": True, "launch_plan_on
                   "pending_handoff_preserved": True, "active_claim_preserved": True,
                   "workflow_completion_inferred": False, "provider_settings_unchanged": True,
                   "fake_provider_calls": 3, "real_provider_calls": 0,
+                  "producer_runtime_manifest_recorded": True,
                   "installed_codex_and_claude_streaming": True, "installed_control_status": True}))
 """
 
@@ -305,5 +316,6 @@ class PublicPeerTests(unittest.TestCase):
             "pending_handoff_preserved": True, "active_claim_preserved": True,
             "workflow_completion_inferred": False, "provider_settings_unchanged": True,
             "fake_provider_calls": 3, "real_provider_calls": 0,
+            "producer_runtime_manifest_recorded": True,
             "installed_codex_and_claude_streaming": True, "installed_control_status": True,
         }, result)

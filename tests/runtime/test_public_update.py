@@ -9,6 +9,7 @@ Normal public shell launchers are also exercised, including an offline check.
 
 import json
 import shutil
+import subprocess
 import unittest
 
 import test_package_release as packaging
@@ -211,6 +212,55 @@ print(json.dumps({'source_and_assets_absent': True, 'public_launcher_verified': 
 
 
 class PublicUpdateTests(unittest.TestCase):
+    def test_generated_installer_renders_setup_without_installed_modules_or_commands(self):
+        source = packaging.PackageReleaseTests(methodName='test_archive_is_closed_normalized_and_independently_checksummed')
+        source.setUp()
+        self.addCleanup(source.doCleanups)
+        assets, metadata = source.package()
+        script = r'''
+import argparse, copy, io, json, pathlib, runpy, sys
+from contextlib import redirect_stdout
+namespace = runpy.run_path(sys.argv[1], run_name='pinned_installer_fixture')
+assert namespace['PINNED_RELEASE']['release_id'] == sys.argv[2]
+assert not any(name.startswith(('relay_runtime', 'relay_core', 'relay_bootstrap')) for name in sys.modules)
+def no_execution(event, arguments):
+    assert event != 'subprocess.Popen' and not event.startswith('socket.'), event
+sys.addaudithook(no_execution)
+launcher = '/synthetic/account/.local/bin/multithread'
+repo = '/synthetic/checkout\n\u001b[2J'
+command = [launcher, 'launch', 'codex', '--repo', repo]
+report = {'state': 'setup_checked', 'installation': 'installed', 'launcher': launcher,
+          'repository': {'state': 'ready', 'repo': repo,
+              'runtime': {'state': 'verified'}, 'repository': {'state': 'verified'},
+              'providers': {'codex': {'state': 'unavailable', 'message': 'Synthetic provider error'},
+                            'claude': {'state': 'missing'}},
+              'first_collaboration_url': namespace['PROJECT'] + '/blob/main/docs/PEER.md#first-collaboration',
+              'next_actions': [{'stage': 'codex', 'action': 'Review this prepared invocation.', 'command': command}]}}
+before = copy.deepcopy(report)
+assert namespace['_finish'](report, argparse.Namespace(json=False, repo=pathlib.Path(repo))) == 0
+assert report == before
+output = io.StringIO()
+with redirect_stdout(output):
+    assert namespace['_finish'](report, argparse.Namespace(json=True, repo=pathlib.Path(repo))) == 0
+assert json.loads(output.getvalue()) == before
+assert not any(name.startswith(('relay_runtime', 'relay_core', 'relay_bootstrap')) for name in sys.modules)
+'''
+        completed = subprocess.run(['/usr/bin/python3', '-I', '-S', '-B', '-c', script,
+                                    str(assets / 'install.py'), metadata['release_id']],
+                                   cwd=source.base, env=source.env, stdin=subprocess.DEVNULL,
+                                   capture_output=True, text=True, timeout=20)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertEqual('', completed.stderr)
+        output = completed.stdout
+        for expected in ('Repository readiness: ready', 'Runtime: verified', 'Repository: verified',
+                         'codex: unavailable; Synthetic provider error', 'claude: missing',
+                         '/docs/PEER.md#first-collaboration'):
+            self.assertIn(expected, output)
+        self.assertNotIn('\x1b', output)
+        command = next(line.split(': ', 1)[1] for line in output.splitlines()
+                       if line.startswith('  Command (JSON argv): '))
+        self.assertEqual('/synthetic/checkout\n\x1b[2J', json.loads(command)[-1])
+
     def test_pinned_install_and_installed_update_preserve_real_coordination(self):
         fixture = profile.PublicProfileTests(methodName='test_public_installed_ledger_in_fresh_rootless_account')
         fixture.setUp()

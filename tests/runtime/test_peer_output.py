@@ -5,9 +5,11 @@ from copy import deepcopy
 import io
 import json
 from pathlib import Path
+import shlex
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -15,7 +17,7 @@ from relay_runtime import provider
 
 
 class PeerOutputTests(unittest.TestCase):
-    def display(self, **changes):
+    def display(self, *, report_entry=None, **changes):
         envelope = {
             "state": "returned", "result": "The reviewed change handles the boundary case.",
             "needs_attention": False, "terminal_reason": "completed",
@@ -26,7 +28,7 @@ class PeerOutputTests(unittest.TestCase):
         before = deepcopy(envelope)
         output = io.StringIO()
         with redirect_stdout(output):
-            provider._display_peer(envelope)
+            provider._display_peer(envelope, report_entry=report_entry)
         self.assertEqual(before, envelope)
         return output.getvalue()
 
@@ -260,6 +262,39 @@ class PeerOutputTests(unittest.TestCase):
         self.assertIn("Next: inspect the reported condition before deciding whether to retry.", output)
         self.assertNotIn("Local evidence:", output)
         self.assertNotIn("Next: inspect the local evidence", output)
+        self.assertNotIn("Support report", output)
+
+    def test_attention_links_the_actual_private_receipt_and_read_only_report(self):
+        directory = "/tmp/peer's review space"
+        with mock.patch.object(provider, "account_launcher", return_value=Path("/tmp/tools/multithread")):
+            output = self.display(needs_attention=True, evidence_directory=directory)
+        command = next(line.split(": ", 1)[1] for line in output.splitlines()
+                       if line.startswith("Support report: "))
+        self.assertEqual(["/tmp/tools/multithread", "peer", "report", "--call-dir", directory, "--json"],
+                         shlex.split(command))
+        self.assertIn("Private result receipt: " + directory + "/result.json", output)
+        self.assertIn("does not assess task completion", output)
+        self.assertNotIn("--resume", command)
+
+    def test_source_entry_report_does_not_assume_the_selected_installation_supports_it(self):
+        entry = ["/usr/bin/python3", "-I", "-S", "-B", "/tmp/reviewed source/examples/call_peer.py"]
+        with mock.patch.object(provider, "account_launcher", side_effect=AssertionError("wrong entry")):
+            output = self.display(needs_attention=True, report_entry=entry)
+        command = next(line.split(": ", 1)[1] for line in output.splitlines()
+                       if line.startswith("Support report: "))
+        self.assertEqual([*entry, "report", "--call-dir", "/tmp/artificial-peer", "--json"],
+                         shlex.split(command))
+
+    def test_unusual_evidence_path_preserves_exact_argv_without_terminal_controls(self):
+        directory = "/tmp/peer\n\x1b[31mname"
+        output = self.display(needs_attention=True, evidence_directory=directory,
+                              report_entry=["/tmp/multithread", "peer"])
+        self.assertNotIn("\x1b", output)
+        self.assertNotIn(directory, output)
+        command = next(line.split(": ", 1)[1] for line in output.splitlines()
+                       if line.startswith("Support report (JSON argv): "))
+        self.assertEqual(["/tmp/multithread", "peer", "report", "--call-dir", directory, "--json"],
+                         json.loads(command))
 
 
 if __name__ == "__main__":

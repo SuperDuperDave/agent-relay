@@ -39,6 +39,23 @@ class UpdateError(Exception):
     pass
 
 
+def _display_text(value):
+    # Keep these stdlib-only display helpers aligned with provider.py: this file
+    # also runs as install.py before any Relay package is installed.
+    return "".join(character if character.isprintable() else
+                   json.dumps(character, ensure_ascii=True)[1:-1]
+                   for character in str(value))
+
+
+def _display_command(label, argv):
+    if all(argument.isprintable() for argument in argv):
+        print(label + ": " + shlex.join(argv))
+    else:
+        # Preserve the exact arguments as data; escaped shell text could refer
+        # to a different path from the one the user actually selected.
+        print(label + " (JSON argv): " + json.dumps(argv, ensure_ascii=True))
+
+
 def _https(url):
     try:
         parsed = urllib.parse.urlsplit(url)
@@ -253,7 +270,7 @@ def _run(argv, *, install):
                     raise UpdateError("Activation changed since your observation; no repository setup was attempted.")
                 result["launcher"] = str(launcher)
                 if not args.yes:
-                    print(f"Multithread is already up to date. Explicitly enroll/check {args.repo}; provider settings stay unchanged.")
+                    print(f"Multithread is already up to date. Explicitly enroll/check {_display_text(args.repo)}; provider settings stay unchanged.")
                     if not sys.stdin.isatty():
                         result.update(state="needs_attention", repository="not_checked",
                             message="Repository setup was requested but not approved. Run the exact setup command.",
@@ -285,8 +302,8 @@ def _run(argv, *, install):
             # Approve newly fetched publisher code before the incoming bootstrap
             # is ever executed. The existing verified launcher supplies current
             # identity; the incoming plan must later match that same snapshot.
-            print(f"Update Multithread {current['activation']['version']} → {release['version']}\nSource: {result['source_url']}\nRuntime: {release['release_id'][:12]}…\nLauncher: {launcher}\nCurrent activation: {current['activation']['activation_id']}")
-            print(f"Repository enrollment: {args.repo or 'not requested'}. Provider settings stay unchanged.")
+            print(f"Update Multithread {_display_text(current['activation']['version'])} → {release['version']}\nSource: {result['source_url']}\nRuntime: {release['release_id'][:12]}…\nLauncher: {_display_text(launcher)}\nCurrent activation: {_display_text(current['activation']['activation_id'])}")
+            print(f"Repository enrollment: {_display_text(args.repo or 'not requested')}. Provider settings stay unchanged.")
             print("Approve this publisher's release before running its installer. Checksums bind bytes, not publisher authenticity.")
             print("Running workers keep loaded code; subsequent commands use this selection. Check release compatibility before updating active work.")
             if not sys.stdin.isatty():
@@ -320,12 +337,12 @@ def _run(argv, *, install):
                     raise UpdateError("This installer is older than the active version; use multithread update or deliberate rollback.")
             elif expected is not None:
                 raise UpdateError("Active installation became unavailable after planning.")
-            print(f"Multithread: selected {release['version']}; exact current activation {expected or 'none'}; repository enrollment {args.repo or 'not requested'}.", file=sys.stderr, flush=True)
+            print(f"Multithread: selected {release['version']}; exact current activation {_display_text(expected or 'none')}; repository enrollment {_display_text(args.repo or 'not requested')}.", file=sys.stderr, flush=True)
             if expected is not None and observed["activation"]["release_id"] != release["release_id"]:
                 print("Multithread: running workers keep loaded code; subsequent commands use the new release. Preserve active coordination and follow release compatibility guidance.", file=sys.stderr, flush=True)
             if install and not args.yes:
-                print(f"Multithread {release['version']}\nSource: {result['source_url']}\nRuntime: {release['release_id'][:12]}…\nLauncher: {plan['launcher']}\nCurrent activation: {expected or 'none'}")
-                print(f"Repository setup: {args.repo or 'not requested'}\nProvider sign-ins/settings and permissions stay unchanged.")
+                print(f"Multithread {release['version']}\nSource: {result['source_url']}\nRuntime: {release['release_id'][:12]}…\nLauncher: {_display_text(plan['launcher'])}\nCurrent activation: {_display_text(expected or 'none')}")
+                print(f"Repository setup: {_display_text(args.repo or 'not requested')}\nProvider sign-ins/settings and permissions stay unchanged.")
                 print("Running workers keep loaded code; subsequent commands use this selection. Finish active coordination before updating between incompatible releases.")
                 print("Approve this publisher's release. Checksums bind the selected bytes; they are not a publisher signature.")
                 if not sys.stdin.isatty():
@@ -393,34 +410,112 @@ def _setup(result, args, launcher):
     return _finish(result, args)
 
 
+def _display_setup(report):
+    """Present the captured receipt without importing or rerunning setup."""
+    text = _display_text
+    state = report.get("state", "not_reported")
+    print("Repository readiness: " + text(state).replace("_", " "))
+    if report.get("repo"):
+        print("Checkout: " + text(report["repo"]))
+    runtime = report.get("runtime", {})
+    repository = report.get("repository", {})
+    for label, entry in (("Runtime", runtime), ("Repository", repository)):
+        if isinstance(entry, dict) and entry.get("state"):
+            print(label + ": " + text(entry["state"]))
+    if not isinstance(runtime, dict):
+        runtime = {}
+    if not isinstance(repository, dict):
+        repository = {}
+    identity = repository.get("identity")
+    if isinstance(identity, dict) and identity.get("git_common_dir"):
+        print("Git common directory: " + text(identity["git_common_dir"]))
+    providers = report.get("providers", {})
+    if isinstance(providers, dict):
+        for client, entry in providers.items():
+            if not isinstance(entry, dict):
+                continue
+            summary = text(client) + ": " + text(entry.get("state", "not_reported"))
+            if entry.get("message"):
+                summary += "; " + text(entry["message"])
+            print(summary)
+    observations = [("Runtime", runtime), *((key.title(), repository.get(key, {}))
+                    for key in ("enrollment", "doctor", "status"))]
+    for label, entry in observations:
+        if not isinstance(entry, dict) or entry.get("state") in {"verified", "not_checked", "not_requested", None}:
+            continue
+        print(label + " observation: " + text(entry["state"]))
+        if entry.get("message"):
+            print(label + " detail: " + text(entry["message"]))
+        if isinstance(entry.get("stderr"), str):
+            for line in entry["stderr"].splitlines():
+                print(label + " diagnostic: " + text(line))
+        if entry.get("stderr_truncated") or entry.get("stdout_truncated"):
+            print(label + " diagnostic output was truncated; use the reported check for details.")
+    if report.get("first_collaboration_url"):
+        print("First collaboration, when you authorize provider use: " + text(report["first_collaboration_url"]))
+    actions = report.get("next_actions", [])
+    if not isinstance(actions, list):
+        print("Next actions unavailable: captured next_actions is not a list.")
+        return
+    for action in actions:
+        if isinstance(action, dict):
+            label = text(action.get("stage", "Next"))
+            print(label + ": " + text(action.get("action", "")))
+            if "command" in action:
+                command = action["command"]
+                if isinstance(command, list) and command and all(isinstance(argument, str) for argument in command):
+                    _display_command("  Command", command)
+                else:
+                    print("  Command unavailable: captured command is not a nonempty list of strings.")
+        elif isinstance(action, str):
+            print("Next: " + text(action))
+        else:
+            print("Next action unavailable: captured action is not an object or text.")
+
+
 def _finish(result, args, code=0):
     if args.json:
         print(json.dumps(result, sort_keys=True))
     else:
-        print(f"Multithread: {result['state'].replace('_', ' ')}")
+        text = _display_text
+        state = result["state"].replace("_", " ")
+        if result["state"] == "ready_for_setup":
+            state = {"installed": "runtime installed", "updated": "runtime updated",
+                     "reused": "runtime already installed"}.get(result["installation"], state)
+        print("Multithread: " + text(state))
+        print("Runtime installation: " + text(result["installation"]))
+        setup = result.get("repository")
         if result.get("message"):
-            print(result["message"])
-            if result.get("inspect_command"):
-                print("Inspect: " + result["inspect_command"])
-            else:
-                print("Recovery: " + result["recovery_url"])
-        if result.get("candidate"):
-            print(f"Selected release: {result['candidate']['version']}")
-        if result.get("current") and result["current"].get("installed"):
-            print(f"Active release: {result['current']['activation']['version']}")
-        if result.get("launcher"):
-            launcher = result["launcher"]
-            if result["state"] != "setup_checked":
-                print("Next: " + (result.get("check_command") or shlex.join([launcher, "setup", "--apply", "--repo", str(args.repo or Path.cwd())])))
-            print("Use the exact launcher path above if multithread is not on PATH; shell configuration was not edited.")
-        if isinstance(result.get("repository"), dict):
-            for action in result["repository"].get("next_actions", []):
-                if isinstance(action, dict):
-                    print(action.get("action", ""))
-                    if action.get("command"):
-                        print("Next: " + shlex.join(action["command"]))
+            print(text(result["message"]))
+            if not isinstance(setup, dict):
+                if result.get("inspect_command"):
+                    _display_command("Inspect", shlex.split(result["inspect_command"]))
                 else:
-                    print("Next: " + str(action))
+                    print("Recovery: " + text(result["recovery_url"]))
+        if result.get("candidate"):
+            print("Selected release: " + text(result["candidate"]["version"]))
+        if result.get("current") and result["current"].get("installed"):
+            print("Active release: " + text(result["current"]["activation"]["version"]))
+        launcher = result.get("launcher") or (result.get("current") or {}).get("launcher")
+        if launcher:
+            print("Launcher: " + text(launcher))
+            print("Use the exact launcher path if multithread is not on PATH; shell configuration was not edited.")
+        if isinstance(setup, dict):
+            _display_setup(setup)
+            if result["state"] != "setup_checked" and result.get("check_command"):
+                _display_command("Check repository before retrying setup", shlex.split(result["check_command"]))
+        elif args.repo is not None:
+            print("Repository setup: not checked for " + text(args.repo))
+            if result.get("check_command"):
+                _display_command("Check repository", shlex.split(result["check_command"]))
+            if result.get("setup_command") and result["state"] in {"up_to_date", "needs_attention"}:
+                _display_command("To explicitly enroll/check this repository", shlex.split(result["setup_command"]))
+        else:
+            print("Repository setup: not requested.")
+            if result["state"] == "ready_for_setup" and result["installation"] == "installed":
+                print("Choose a repository for setup: " + PROJECT + "/blob/main/docs/SETUP.md")
+        if result.get("apply_argv"):
+            _display_command("Apply this exact update selection", result["apply_argv"])
         print("Provider authentication, hook delivery and tools are not checked by installation.")
     return code
 
