@@ -290,7 +290,7 @@ class UpdateCommandTests(ReleaseFixture):
         self.commands.append(argv)
         if argv[1:3] == ["runtime", "status"]:
             if self.after_install is not None and any("install" in row for row in self.commands):
-                if isinstance(self.after_install, Exception):
+                if isinstance(self.after_install, BaseException):
                     raise self.after_install
                 return self.after_install
             return self.active
@@ -312,7 +312,7 @@ class UpdateCommandTests(ReleaseFixture):
         self.assertEqual("setup", argv[1])
         self.assertEqual(subprocess.DEVNULL, options["stdin"])
         self.assertNotIn("shell", options)
-        if isinstance(self.setup_response, Exception):
+        if isinstance(self.setup_response, BaseException):
             raise self.setup_response
         return self.setup_response
 
@@ -842,6 +842,87 @@ class UpdateCommandTests(ReleaseFixture):
         self.assertEqual([[self.launcher, "runtime", "status"]], self.commands,
                          "candidate bootstrap must not execute before publisher/selection approval")
         self.assertFalse(any("install" in row for row in self.commands))
+        self.assertEqual([], self.setup_calls)
+
+    def test_standalone_approval_interrupt_reports_no_mutation_without_traceback(self):
+        with (mock.patch.object(update.sys, "stdin", mock.Mock(isatty=lambda: True)),
+              mock.patch("builtins.input", side_effect=KeyboardInterrupt)):
+            code, output, errors = self.invoke_human("--enroll-repo", str(self.repo), install=True)
+        self.assertEqual(130, code)
+        self.assertIn("Runtime installation: unchanged", output)
+        self.assertIn("Interrupted; no installation or enrollment was applied.", output)
+        self.assertNotIn("Traceback", output + errors)
+        self.assertTrue(self.commands)
+        self.assertTrue(all(row[0] == "/usr/bin/python3" and row[5] in {"plan", "status"}
+                            for row in self.commands))
+        self.assertEqual([], self.setup_calls)
+
+    def test_standalone_install_interrupt_retains_unknown_outcome_and_recovery(self):
+        previous = copy.deepcopy(self.active)
+        self.install_error = KeyboardInterrupt()
+        code, result = self.invoke("--yes", "--enroll-repo", str(self.repo), install=True)
+        self.assertEqual(130, code)
+        self.assertEqual("installation", result["stage"])
+        self.assertEqual("unavailable", result["state"])
+        self.assertEqual("unknown", result["installation"])
+        self.assertIsNone(result["current"])
+        self.assertEqual(previous, result["previous"])
+        self.assertIn("inspect", result["message"])
+        self.assertIn("/docs/engineering/INSTALLATION.md", result["recovery_url"])
+        self.assertNotIn("inspect_command", result)
+        self.assertEqual(1, sum("install" in row for row in self.commands))
+        self.assertEqual([], self.setup_calls)
+
+    def test_post_install_interrupt_preserves_success_receipt_and_unknown_current(self):
+        self.active = {"installed": False, "activation": None, "launcher": self.launcher}
+        self.expected = None
+        self.after_install = KeyboardInterrupt()
+        code, result = self.invoke("--yes", "--enroll-repo", str(self.repo), install=True)
+        self.assertEqual(130, code)
+        self.assertEqual("installation", result["stage"])
+        self.assertEqual("installed", result["installation"])
+        self.assertIsNone(result["current"])
+        self.assertEqual(self.release["release_id"], result["applied"]["activation"]["release_id"])
+        self.assertEqual([self.launcher, "runtime", "inspect"], shlex.split(result["inspect_command"]))
+        self.assertEqual(1, sum("install" in row for row in self.commands))
+        self.assertEqual([], self.setup_calls)
+
+    def test_setup_interrupt_retains_runtime_success_and_read_only_recovery(self):
+        self.setup_response = KeyboardInterrupt()
+        code, result = self.invoke(*self.approval(), "--enroll-repo", str(self.repo))
+        self.assertEqual(130, code)
+        self.assertEqual("repository_setup", result["stage"])
+        self.assertEqual("needs_attention", result["state"])
+        self.assertEqual("updated", result["installation"])
+        self.assertEqual(self.release["release_id"], result["current"]["activation"]["release_id"])
+        self.assertEqual({"state": "uncertain"}, result["repository"])
+        self.assertEqual([self.launcher, "setup", "--check", "--repo", str(self.repo), "--json"],
+                         shlex.split(result["check_command"]))
+        self.assertEqual(1, sum("install" in row for row in self.commands))
+        self.assertEqual(1, len(self.setup_calls))
+        output = io.StringIO()
+        with redirect_stdout(output):
+            update._finish(result, update._parser(False).parse_args(["--enroll-repo", str(self.repo)]), code)
+        self.assertIn("Runtime installation: updated", output.getvalue())
+        self.assertIn("Repository readiness: uncertain", output.getvalue())
+        self.assertIn("Check repository before retrying setup: " + result["check_command"], output.getvalue())
+        self.assertNotIn("--apply", output.getvalue())
+
+    def test_installed_update_interrupt_returns_json_before_dispatcher_fallback(self):
+        from relay_runtime import cli
+        self.install_error = KeyboardInterrupt()
+        output, errors = io.StringIO(), io.StringIO()
+        alias_check = mock.Mock()
+        with redirect_stdout(output), redirect_stderr(errors):
+            code = cli.main(["update", "--json", *self.approval()], command_alias_check=alias_check)
+        self.assertEqual(130, code)
+        result = json.loads(output.getvalue())
+        self.assertEqual("unknown", result["installation"])
+        self.assertEqual("installation", result["stage"])
+        self.assertEqual([self.launcher, "runtime", "inspect"], shlex.split(result["inspect_command"]))
+        alias_check.assert_called_once_with()
+        self.assertNotIn("multithread: interrupted", errors.getvalue())
+        self.assertEqual(1, sum("install" in row for row in self.commands))
         self.assertEqual([], self.setup_calls)
 
     def test_eof_at_interactive_update_approval_cancels_before_incoming_code(self):

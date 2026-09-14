@@ -382,6 +382,14 @@ def _run(argv, *, install):
     except EOFError:
         result.update(state="cancelled", stage="not_applied", message="Approval input closed; no installation or enrollment was applied.")
         return _finish(result, args)
+    except KeyboardInterrupt:
+        result.update(state="unavailable", message="Interrupted; inspect current installed state before retrying.")
+        if result["stage"] == "repository_setup":
+            result.update(state="needs_attention", repository={"state": "uncertain"},
+                message="Runtime is installed; repository setup was interrupted and its outcome is unknown. Run the check_command before retrying enrollment.")
+        elif result["installation"] == "unchanged":
+            result.update(state="cancelled", message="Interrupted; no installation or enrollment was applied.")
+        return _finish(result, args, 130)
     except (UpdateError, OSError, KeyError, TypeError, subprocess.TimeoutExpired) as exc:
         result.update(state="unavailable", message=str(exc)[:2000])
         return _finish(result, args, 1)
