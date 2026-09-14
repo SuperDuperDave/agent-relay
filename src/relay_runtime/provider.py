@@ -1042,8 +1042,6 @@ def report_main(argv=None):
                 version["version"] + " (provider-reported; " + version["source"] + ")"
                 if version["status"] == "reported" else "unknown (" + version["status"] + ")"))
             print("Recorded task submission: " + call["task_submission"])
-            if call["task_delivery"] != "not_recorded":
-                print("Recorded task pipe delivery: " + call["task_delivery"] + " (not proof of consumption)")
             print("Recorded producer runtime identity: " + call["producer_runtime_identity"] + " (digest omitted)")
             print("Needs attention: " + ("yes" if call["needs_attention"] else "no"))
             if call["unavailable_stage"] != "unknown":
@@ -1077,7 +1075,7 @@ def report_main(argv=None):
             }[report["receipt_status"]]
             print("Next: " + next_step)
         print("Retained receipt only: provider activity, cause and workflow completion are not checked.")
-        print("Review before sharing. Task/answer text, paths, identities, hashes and native diagnostics are excluded.")
+        print("Review before sharing. Task/answer text, paths, identities, hashes and arbitrary native diagnostics are excluded.")
     return 0 if report["report_state"] == "reported" else 1
 
 

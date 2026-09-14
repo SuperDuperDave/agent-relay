@@ -76,10 +76,13 @@ class PeerReportTests(unittest.TestCase):
                 _, output = self.invoke(structured=False)
                 self.assertIn("Recorded provider version: unknown (invalid)", output)
 
-    def test_human_task_delivery_keeps_pipe_and_consumption_distinct(self):
+    def test_human_task_delivery_is_shown_once_and_keeps_consumption_distinct(self):
         self.reported(task_delivery="uncertain", needs_attention=True)
         _, output = self.invoke(structured=False)
-        self.assertIn("Recorded task pipe delivery: uncertain (not proof of consumption)", output)
+        self.assertEqual(1, output.count("pipe delivery:"))
+        self.assertIn("Task pipe delivery: uncertain", output)
+        self.assertIn("a pipe write does not prove native consumption", output)
+        self.assertIn("arbitrary native diagnostics are excluded", output)
 
     def test_runtime_provenance_is_selected_without_hashes_or_current_installation_reads(self):
         digest = "ab" * 32
