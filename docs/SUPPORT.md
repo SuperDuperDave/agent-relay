@@ -120,6 +120,12 @@ Review this selected diagnostic summary before sharing it. Reporting a call
 does not run it again or establish that it succeeded. A missing final receipt
 leaves the call outcome unknown. Keep the original private evidence intact.
 
+Newer reports can include a provider-reported version observed during that call.
+Older receipts and ordinary Claude final-JSON calls leave it unrecorded; see
+[version provenance](PEER-REFERENCE.md#prepare-a-support-report-from-an-existing-call).
+If you supply a CLI version separately, include when you observed it. The version
+installed after an update does not identify the provider used by an earlier call.
+
 Share the command name, exit category, platform/architecture, relevant dependency
 versions, test counts and sanitized JSON outcome. Identify the reviewed commit
 and whether the issue is install, enrollment, test environment or provider trust.

@@ -21,7 +21,7 @@ from relay_runtime import peer_control, provider
 
 CANARY = "ARTIFICIAL-PRIVATE-REPORT-CANARY"
 CALL_FIELDS = {
-    "provider", "state", "provider_started", "needs_attention", "process_exit_code",
+    "provider", "provider_version", "state", "provider_started", "needs_attention", "process_exit_code",
     "elapsed_seconds", "provider_turns", "provider_duration_ms", "estimated_cost_usd",
     "actual_billed_cost", "permission_denial_count", "provider_error_count",
     "session_identity", "stdout_observation", "faults", "unavailable_stage",
@@ -35,6 +35,55 @@ UNCHECKED = ("hook_delivery", "provider_tools", "relay_acknowledgement", "workfl
 
 
 class PeerReportTests(unittest.TestCase):
+    def test_provider_version_is_attributed_and_selected_in_both_formats(self):
+        for client, source in (("codex", "codex_initialize_user_agent"), ("claude", "claude_system_init")):
+            with self.subTest(client=client):
+                observation = {"status": "reported", "version": "1.2.3", "source": source}
+                call = self.reported(provider=client, provider_version={**observation, "private": CANARY},
+                                     native_version=CANARY, native_model=CANARY)
+                self.assertEqual(observation, call["provider_version"])
+                _, output = self.invoke(structured=False)
+                self.assertIn("Recorded provider version: 1.2.3 (provider-reported; " + source + ")", output)
+
+    def test_missing_or_unrecognized_version_preserves_call_and_uncertainty(self):
+        for client, source in (("codex", "codex_initialize_user_agent"), ("claude", "claude_system_init")):
+            call = self.reported(provider=client, native_version="1.2.3")
+            self.assertEqual({"status": "not_recorded", "version": None, "source": None}, call["provider_version"])
+            for status in ("not_reported", "unrecognized"):
+                observation = {"status": status, "version": None, "source": source}
+                call = self.reported(provider=client, provider_version=observation)
+                self.assertEqual(observation, call["provider_version"])
+                self.assertEqual("returned", call["state"])
+                self.assertFalse(call["needs_attention"])
+                _, output = self.invoke(structured=False)
+                self.assertIn("Recorded provider version: unknown (" + status + ")", output)
+
+    def test_invalid_version_provenance_does_not_leak_or_discard_an_outcome(self):
+        valid = {"status": "reported", "version": "1.2.3", "source": "claude_system_init"}
+        observations = [None, [], CANARY, {}, {**valid, "source": "codex_initialize_user_agent"}]
+        for key in valid:
+            observations.extend({**valid, key: value} for value in (None, True, [], {}, CANARY))
+        observations.extend({**valid, "version": value} for value in (
+            "1.2.3+" + CANARY, "1.2.3-" + CANARY, "1.2.3\n", "1.2.3 " + CANARY,
+            "01.2.3", "١.2.3", "1" * 200, "1.2.3-alpha.01"))
+        observations.extend({**valid, "status": status} for status in ("not_reported", "unrecognized"))
+        for observation in observations:
+            with self.subTest(observation=observation):
+                call = self.reported(provider_version=observation)
+                self.assertEqual({"status": "invalid", "version": None, "source": None}, call["provider_version"])
+                self.assertEqual("returned", call["state"])
+                self.assertFalse(call["needs_attention"])
+                _, output = self.invoke(structured=False)
+                self.assertIn("Recorded provider version: unknown (invalid)", output)
+
+    def test_human_task_delivery_is_shown_once_and_keeps_consumption_distinct(self):
+        self.reported(task_delivery="uncertain", needs_attention=True)
+        _, output = self.invoke(structured=False)
+        self.assertEqual(1, output.count("pipe delivery:"))
+        self.assertIn("Task pipe delivery: uncertain", output)
+        self.assertIn("a pipe write does not prove native consumption", output)
+        self.assertIn("arbitrary native diagnostics are excluded", output)
+
     def test_runtime_provenance_is_selected_without_hashes_or_current_installation_reads(self):
         digest = "ab" * 32
         cases = (

@@ -9,9 +9,43 @@ import hashlib
 import json
 import math
 import os
+import re
 
 
 MAX_OUTPUT = 16 * 1024 * 1024
+
+_VERSION_NUMBER = r"(?:0|[1-9][0-9]{0,5})"
+_PROVIDER_VERSION = re.compile(
+    rf"{_VERSION_NUMBER}\.{_VERSION_NUMBER}\.{_VERSION_NUMBER}"
+    rf"(?:-(?:alpha|beta|rc)\.{_VERSION_NUMBER})?")
+
+
+def canonical_provider_version(value):
+    """Select a bounded version, never arbitrary native text or build metadata."""
+    if isinstance(value, str) and len(value) <= 40 and _PROVIDER_VERSION.fullmatch(value):
+        return value
+    return None
+
+
+def provider_version_observation(value, source):
+    """Describe this initialization's optional, self-reported provider version."""
+    if source not in ("codex_initialize_user_agent", "claude_system_init"):
+        raise ValueError("Unsupported provider version source")
+    version = None
+    if source == "codex_initialize_user_agent":
+        # The leading token describes the server. The platform and trailing
+        # client metadata can carry other versions and must never supply it.
+        if (isinstance(value, str) and len(value) <= 1024
+                and not any(ord(character) < 32 or ord(character) == 127 for character in value)):
+            token = value.partition(" ")[0]
+            if token.startswith("multithread/"):
+                version = canonical_provider_version(token[len("multithread/"):])
+    else:
+        version = canonical_provider_version(value)
+    return {"status": "reported" if version is not None else
+                       "not_reported" if value is None else "unrecognized",
+            "version": version, "source": source}
+
 
 # Stable identifiers are the machine contract; prose remains for older readers.
 USAGE_SCOPES = {

@@ -240,6 +240,8 @@ class ClaudeProtocolTests(unittest.TestCase):
         self.assertFalse(envelope["needs_attention"])
         self.assertEqual("fixture-effective-model", envelope["native_model"])
         self.assertEqual("2.1.269", envelope["native_version"])
+        self.assertEqual({"status": "reported", "version": "2.1.269",
+                          "source": "claude_system_init"}, envelope["provider_version"])
         self.assertEqual("default", envelope["native_permission_mode"])
         self.assertEqual("written", envelope["task_delivery"])
         self.assertEqual([(SESSION, None)], control.targets)
@@ -470,6 +472,52 @@ class ClaudeProtocolTests(unittest.TestCase):
                 self.assertTrue(envelope['needs_attention'])
                 self.assertEqual([(SESSION, None)], control.targets)
 
+    def test_optional_initialization_version_does_not_change_the_native_outcome(self):
+        cases = [(None, "not_reported", None), ("0.0.0", "reported", "0.0.0"),
+                 ("1.2.3-alpha.0", "reported", "1.2.3-alpha.0"),
+                 ("1.2.3-beta.4", "reported", "1.2.3-beta.4"),
+                 ("1.2.3-rc.5", "reported", "1.2.3-rc.5")]
+        for value in (True, 123, {}, [], "", "01.2.3", "1.2.3-rc.01", "1.2.3-rc.1000000",
+                      "1000000.2.3", "１.2.3", "1.2.3 (Claude Code)", "1.2.3+ARTIFICIAL-CANARY",
+                      "1.2.3\nARTIFICIAL-CANARY", "ARTIFICIAL-CANARY" * 100):
+            cases.append((value, "unrecognized", None))
+        for value, status, version in cases:
+            with self.subTest(value=value):
+                envelope, _, _ = self.run_native([{"read": 1},
+                    {"emit": init(claude_code_version=value)}, {"emit": result()}])
+                self.assertEqual("returned", envelope["state"])
+                self.assertEqual(ANSWER, envelope["result"])
+                self.assertFalse(envelope["needs_attention"])
+                self.assertEqual({"status": status, "version": version,
+                                  "source": "claude_system_init"}, envelope["provider_version"])
+
+    def test_repeated_initialization_replaces_version_including_missing_or_unrecognized(self):
+        missing = init()
+        missing.pop("claude_code_version")
+        cases = [(missing, "not_reported", None),
+                 (init(claude_code_version="ARTIFICIAL-CANARY"), "unrecognized", None),
+                 (init(claude_code_version="3.4.5"), "reported", "3.4.5")]
+        for latest, status, version in cases:
+            with self.subTest(status=status):
+                envelope, _, _ = self.run_native([{"read": 1}, {"emit": init()},
+                    {"emit": latest}, {"emit": result()}])
+                self.assertEqual("returned", envelope["state"])
+                self.assertEqual(ANSWER, envelope["result"])
+                self.assertFalse(envelope["needs_attention"])
+                self.assertEqual(2, envelope["native_initialization_count"])
+                self.assertEqual({"status": status, "version": version,
+                                  "source": "claude_system_init"}, envelope["provider_version"])
+
+    def test_subagent_initialization_cannot_replace_the_main_provider_version(self):
+        envelope, _, _ = self.run_native([{"read": 1}, {"emit": init()},
+            {"emit": init(claude_code_version="9.8.7", parent_tool_use_id="fixture-tool")},
+            {"emit": result()}])
+        self.assertEqual("returned", envelope["state"])
+        self.assertFalse(envelope["needs_attention"])
+        self.assertEqual(1, envelope["native_initialization_count"])
+        self.assertEqual({"status": "reported", "version": "2.1.269",
+                          "source": "claude_system_init"}, envelope["provider_version"])
+
     # --- identity and attribution ---------------------------------------
 
     def test_session_mismatch_returns_no_answer_and_advertises_no_target(self):
@@ -482,6 +530,7 @@ class ClaudeProtocolTests(unittest.TestCase):
         self.assertTrue(envelope["needs_attention"])
         self.assertEqual(OTHER_SESSION, envelope["observed_session_id"])
         self.assertIsNone(envelope["session_id"])
+        self.assertNotIn("provider_version", envelope)
         self.assertEqual([], control.targets)
         self.assertIn(b"result", self.assert_raw(envelope, directory))
 
@@ -491,6 +540,7 @@ class ClaudeProtocolTests(unittest.TestCase):
             [{"read": 1}, {"emit": init(cwd="/somewhere/else")}, {"emit": result()}], control=control)
         self.assertEqual("uncertain", envelope["state"])
         self.assertIsNone(envelope["result"])
+        self.assertNotIn("provider_version", envelope)
         self.assertEqual([], control.targets)
 
     def test_subagent_frames_never_supply_main_text_result_or_consumption(self):

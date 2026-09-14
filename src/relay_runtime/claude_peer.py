@@ -17,7 +17,8 @@ import uuid as uuid_module
 
 from .native_io import MAX_OUTPUT, Observation, ProtocolError, decode, identity
 from .native_io import (USAGE_SCOPES, MODEL_USAGE_SCOPES, COST_SCOPES,
-                        claude_measurements, measurement_scope, replace_measurement_errors)
+                        claude_measurements, measurement_scope, replace_measurement_errors,
+                        provider_version_observation)
 
 
 _MAX_INPUTS = 128
@@ -237,6 +238,10 @@ class _Driver:
         cwd = value.get("cwd")
         if cwd is not None and (not isinstance(cwd, str) or cwd != self.repo):
             raise ProtocolError("The native session working directory does not match the enrolled checkout.")
+        # Always replace this observation: missing or unfamiliar metadata in a
+        # repeated init must not inherit a version from an earlier init.
+        self.envelope["provider_version"] = provider_version_observation(
+            value.get("claude_code_version"), "claude_system_init")
         for name, key in (("model", "native_model"), ("claude_code_version", "native_version"),
                           ("permissionMode", "native_permission_mode")):
             if identity(value.get(name)):
@@ -246,7 +251,8 @@ class _Driver:
         # Streaming resume and native background turns can repeat init for the
         # same session. Validate identity/cwd every time; never reset the task,
         # its receipts or the closed input target. Raw frames retain settings
-        # history; the compact native settings above describe the latest init.
+        # history. provider_version describes this init; legacy native settings
+        # retain the latest supplied valid values.
         self.envelope["native_initialization_count"] = self.envelope.get("native_initialization_count", 0) + 1
         if first and self.control is not None and self.accepting and not self.observation_only:
             self.control.set_target(session, None)
