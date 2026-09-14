@@ -482,12 +482,20 @@ class PeerOutputTests(unittest.TestCase):
 
     def test_unconfirmed_session_recovery_does_not_prescribe_a_resume(self):
         output = self.display(state="uncertain", result=None, session_id=None,
-                              requested_session_id="requested-only", needs_attention=True)
+                              requested_session_id="requested-only", needs_attention=True,
+                              provider_started=True)
         self.assertIn("does not confirm a resumable session", output)
         self.assertIn("Check native session state", output)
         self.assertNotIn("--resume", output)
         self.assertNotIn("Follow-up preparation", output)
         self.assertNotIn("does not confirm", self.display(needs_attention=True))
+        for started in (False, None):
+            with self.subTest(provider_started=started):
+                output = self.display(state="unavailable", result=None, session_id=None,
+                                      requested_session_id="requested-only", needs_attention=True,
+                                      provider_started=started)
+                self.assertNotIn("Check native session state", output)
+                self.assertNotIn("--resume", output)
 
     def test_partial_input_and_control_fault_keep_their_distinct_causes(self):
         output = self.display(

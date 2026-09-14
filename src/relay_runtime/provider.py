@@ -1181,7 +1181,7 @@ def _display_peer(envelope, *, report_entry=None):
         if isinstance(requested, str) and requested:
             print(f"Requested session (unverified): {requested[:2000]}" +
                   (" [Detail truncated.]" if len(requested) > 2000 else ""))
-            if envelope.get("needs_attention"):
+            if envelope.get("needs_attention") and envelope.get("provider_started") is True:
                 print("This requested identity does not confirm a resumable session. Check native session state before choosing resume or a fresh call.")
     observed_session = envelope.get("observed_session_id")
     if isinstance(observed_session, str) and observed_session:
