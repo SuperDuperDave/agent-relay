@@ -494,6 +494,30 @@ class PeerControlTests(unittest.TestCase):
         self.assertNotIn("synthetic private read diagnostic", output.getvalue() + errors.getvalue())
         self.assertEqual([], list((self.control_dir / "requests").iterdir()))
 
+    def test_nonregular_message_keeps_the_existing_request_inspection_route(self):
+        identifier = self.queue()
+        request = self.control_dir / "requests" / (identifier + ".json")
+        before = request.read_bytes()
+        fifo = self.base / "message pipe"
+        os.mkfifo(fifo, 0o600)
+        for human in (False, True):
+            code, result = self.invoke("send", "--request-id", identifier,
+                                       "--session", SESSION, "--turn", TURN,
+                                       "--message-file", str(fifo), json_output=not human)
+            self.assertEqual(1, code, result)
+            if human:
+                self.assertIn("This invocation submitted no new input", result)
+                self.assertIn("Inspect command: ", result)
+                self.assertIn("--request-id " + identifier, result)
+            else:
+                self.assertIn(identifier, result["inspect_argv"])
+                self.assertIn("receipt", result["inspect_argv"])
+        self.assertEqual(before, request.read_bytes())
+        self.assertEqual(1, len(list(request.parent.iterdir())))
+        code, receipt = self.receipt(identifier)
+        self.assertEqual(2, code, receipt)
+        self.assertEqual("pending", receipt["state"])
+
     def test_exact_64_kib_message_is_allowed_and_retained_as_literal_input(self):
         body = b"x" * 65536
         identifier, (code, result) = self.send(stdin=body)

@@ -774,6 +774,93 @@ class UpdateCommandTests(ReleaseFixture):
         self.assertIn("setup checked", output.getvalue())
         update.download.assert_not_called()
 
+    def test_current_release_enrollment_approval_interrupt_cancels_without_recovery(self):
+        self.active = self.active_state("0.2.0", self.release["release_id"], "d" * 32)
+        with (mock.patch.object(update.sys, "stdin", mock.Mock(isatty=lambda: True)),
+              mock.patch("builtins.input", side_effect=KeyboardInterrupt),
+              mock.patch.object(update, "_finish", wraps=update._finish) as finish):
+            code, output, _ = self.invoke_human("--enroll-repo", str(self.repo))
+        self.assertEqual(130, code)
+        result = finish.call_args.args[0]
+        self.assertEqual("cancelled", result["state"])
+        self.assertEqual("reused", result["installation"])
+        self.assertEqual("not_checked", result["repository"])
+        self.assertEqual(self.active, result["current"])
+        self.assertIn("Multithread: cancelled", output)
+        self.assertIn("no installation or enrollment was applied", output)
+        for unwanted in ("Inspect:", "Recovery:", "Check repository:", "--apply", "retrying"):
+            self.assertNotIn(unwanted, output)
+        self.assertEqual([[self.launcher, "runtime", "status"]], self.commands)
+        self.assertEqual([], self.setup_calls)
+        update.download.assert_not_called()
+
+    def test_current_release_setup_interrupt_still_reports_uncertain_enrollment(self):
+        self.active = self.active_state("0.2.0", self.release["release_id"], "d" * 32)
+        self.setup_response = KeyboardInterrupt()
+        code, result = self.invoke(*self.approval(), "--enroll-repo", str(self.repo))
+        self.assertEqual(130, code)
+        self.assertEqual("repository_setup", result["stage"])
+        self.assertEqual("needs_attention", result["state"])
+        self.assertEqual("reused", result["installation"])
+        self.assertEqual({"state": "uncertain"}, result["repository"])
+        self.assertEqual([self.launcher, "setup", "--check", "--repo", str(self.repo), "--json"],
+                         shlex.split(result["check_command"]))
+        self.assertEqual([[self.launcher, "runtime", "status"]], self.commands)
+        self.assertEqual(1, len(self.setup_calls))
+        update.download.assert_not_called()
+
+    def test_reporting_interrupt_preserves_captured_setup_success_or_refusal(self):
+        finish = update._finish
+        receipts = ((self.ready_setup(), 0, "setup_checked", "complete"),
+                    ({"state": "not_ready", "repository": {"state": "refused",
+                      "message": "Synthetic enrollment refusal"}}, 1, "needs_attention", "repository_setup"))
+        for receipt, setup_code, state, stage in receipts:
+            with self.subTest(state=state):
+                self.active = self.active_state("0.2.0", self.release["release_id"], "d" * 32)
+                self.commands.clear()
+                self.setup_calls.clear()
+                self.setup_response = subprocess.CompletedProcess([], setup_code, json.dumps(receipt), "")
+                interrupted = False
+
+                def interrupt_once(result, args, code=0):
+                    nonlocal interrupted
+                    if not interrupted:
+                        interrupted = True
+                        raise KeyboardInterrupt()
+                    return finish(result, args, code)
+
+                with mock.patch.object(update, "_finish", side_effect=interrupt_once):
+                    code, result = self.invoke(*self.approval(), "--enroll-repo", str(self.repo))
+                self.assertEqual(130, code)
+                self.assertEqual(receipt, result["repository"])
+                self.assertEqual(state, result["state"])
+                self.assertEqual(stage, result["stage"])
+                self.assertEqual("reused", result["installation"])
+                self.assertIn("captured repository setup result is preserved", result["message"])
+                self.assertEqual([[self.launcher, "runtime", "status"]], self.commands)
+                self.assertEqual(1, len(self.setup_calls))
+                update.download.assert_not_called()
+
+    def test_post_reuse_status_interrupt_remains_unavailable_with_inspection(self):
+        self.active = self.active_state("0.2.0", self.release["release_id"], "d" * 32)
+
+        def interrupt_status(argv):
+            if argv[1:3] == ["runtime", "status"]:
+                self.commands.append(argv)
+                raise KeyboardInterrupt()
+            return self.command(argv)
+
+        with mock.patch.object(update, "_command", side_effect=interrupt_status):
+            code, result = self.invoke("--yes", "--enroll-repo", str(self.repo), install=True)
+        self.assertEqual(130, code)
+        self.assertEqual("unavailable", result["state"])
+        self.assertEqual("installation", result["stage"])
+        self.assertEqual("reused", result["installation"])
+        self.assertIsNone(result["current"])
+        self.assertEqual([self.launcher, "runtime", "inspect"], shlex.split(result["inspect_command"]))
+        self.assertFalse(any("install" in row for row in self.commands))
+        self.assertEqual([], self.setup_calls)
+
     def test_standalone_install_uses_pinned_metadata_without_executing_unknown_launcher(self):
         self.active = {"installed": False, "activation": None, "launcher": self.launcher}
         self.expected = None
@@ -852,6 +939,7 @@ class UpdateCommandTests(ReleaseFixture):
         self.assertIn("Runtime installation: unchanged", output)
         self.assertIn("Interrupted; no installation or enrollment was applied.", output)
         self.assertNotIn("Traceback", output + errors)
+        self.assertNotIn("Recovery:", output)
         self.assertTrue(self.commands)
         self.assertTrue(all(row[0] == "/usr/bin/python3" and row[5] in {"plan", "status"}
                             for row in self.commands))
