@@ -228,6 +228,12 @@ resends dispatched input. Reusing it with different content is refused. Use
 `receipt --call-dir … --request-id … --json` to inspect later. Final receipts
 are immutable; a pending receipt can gain an observation while the owner runs.
 
+If `send` cannot read its message file or stdin, it identifies that local input
+failure and submits no new input in that invocation. Correct the input source;
+if you reused a request UUID, inspect its receipt because earlier input may
+already exist. A mailbox or recording failure still requires inspection before
+retrying; it does not establish that nothing was sent.
+
 Input acceptance closes at Codex's terminal turn or Claude's first result
 answering this call's submitted input.
 Already dispatched Claude updates can still produce subsequent results. Missing

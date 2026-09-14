@@ -49,6 +49,12 @@ different release is included in the displayed update selection; unexpected or
 uncertain state refuses instead of replacing unknown files. Installation and
 enrollment preserve existing claims and pending work.
 
+Ctrl-C exits with code 130 and reports the last known installation state.
+If installation was interrupted after it began, its outcome may be unknown;
+inspect using the reported recovery route before retrying. If code installation
+completed but repository setup was interrupted, preserve that installation and
+run the printed read-only repository check before retrying enrollment.
+
 Use the exact launcher path printed by the installer, normally
 `~/.local/bin/multithread`. Account paths come from the OS account database.
 Multithread does not edit shell `PATH`, provider settings, permissions or sign-ins,

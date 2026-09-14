@@ -438,6 +438,86 @@ class PeerControlTests(unittest.TestCase):
                 self.assert_refused(result)
         self.assertEqual([], list((self.control_dir / "requests").iterdir()))
 
+    def test_unavailable_message_file_names_local_input_without_queuing(self):
+        alias = self.base / "message alias"
+        alias.symlink_to(self.message)
+        for path in (self.base / "missing.txt", alias):
+            for human in (False, True):
+                with self.subTest(path=path.name, human=human):
+                    code, result = self.invoke("send", "--session", SESSION, "--turn", TURN,
+                                               "--message-file", str(path), json_output=not human)
+                    detail = result if human else result["detail"]
+                    self.assertEqual(1, code)
+                    self.assertIn("message file", detail)
+                    self.assertIn("--message-file", detail)
+                    self.assertIn("This invocation submitted no new input", detail)
+                    self.assertNotIn("Mailbox observation or recording", detail)
+                    self.assertNotIn(str(path), detail)
+                    if not human:
+                        self.assertEqual("unavailable", result["state"])
+                        self.assertIn("inspect_argv", result)
+        self.assertEqual([], list((self.control_dir / "requests").iterdir()))
+        self.assertEqual([], self.owner.pending())
+
+    def test_message_read_failure_preserves_an_earlier_request_and_receipt_route(self):
+        identifier = self.queue()
+        path = self.control_dir / "requests" / (identifier + ".json")
+        before = path.read_bytes()
+        self.message.unlink()
+        _, (code, result) = self.send(identifier)
+        self.assertEqual(1, code, result)
+        self.assertIn("This invocation submitted no new input", result["detail"])
+        self.assertEqual(identifier, result["request_id"])
+        self.assertIn(identifier, result["inspect_argv"])
+        self.assertEqual(before, path.read_bytes())
+        self.assertEqual(1, len(list(path.parent.iterdir())))
+        code, receipt = self.receipt(identifier)
+        self.assertEqual(2, code, receipt)
+        self.assertEqual("pending", receipt["state"])
+        self.assertEqual([identifier], [request["request_id"] for request in self.owner.pending()])
+        self.assertEqual([], self.owner.pending())
+
+    def test_stdin_read_failure_identifies_input_without_private_exception_text(self):
+        output, errors = io.StringIO(), io.StringIO()
+        stream = mock.Mock()
+        stream.buffer.read.side_effect = OSError("synthetic private read diagnostic")
+        with (redirect_stdout(output), redirect_stderr(errors),
+              mock.patch.object(control.sys, "stdin", stream)):
+            code = control.control_main(["send", "--call-dir", str(self.directory),
+                                         "--session", SESSION, "--turn", TURN,
+                                         "--message-file", "-", "--json"])
+        result = json.loads(output.getvalue())
+        self.assertEqual(1, code, result)
+        self.assertEqual("unavailable", result["state"])
+        self.assertIn("stdin", result["detail"])
+        self.assertIn("This invocation submitted no new input", result["detail"])
+        self.assertNotIn("synthetic private read diagnostic", output.getvalue() + errors.getvalue())
+        self.assertEqual([], list((self.control_dir / "requests").iterdir()))
+
+    def test_nonregular_message_keeps_the_existing_request_inspection_route(self):
+        identifier = self.queue()
+        request = self.control_dir / "requests" / (identifier + ".json")
+        before = request.read_bytes()
+        fifo = self.base / "message pipe"
+        os.mkfifo(fifo, 0o600)
+        for human in (False, True):
+            code, result = self.invoke("send", "--request-id", identifier,
+                                       "--session", SESSION, "--turn", TURN,
+                                       "--message-file", str(fifo), json_output=not human)
+            self.assertEqual(1, code, result)
+            if human:
+                self.assertIn("This invocation submitted no new input", result)
+                self.assertIn("Inspect command: ", result)
+                self.assertIn("--request-id " + identifier, result)
+            else:
+                self.assertIn(identifier, result["inspect_argv"])
+                self.assertIn("receipt", result["inspect_argv"])
+        self.assertEqual(before, request.read_bytes())
+        self.assertEqual(1, len(list(request.parent.iterdir())))
+        code, receipt = self.receipt(identifier)
+        self.assertEqual(2, code, receipt)
+        self.assertEqual("pending", receipt["state"])
+
     def test_exact_64_kib_message_is_allowed_and_retained_as_literal_input(self):
         body = b"x" * 65536
         identifier, (code, result) = self.send(stdin=body)

@@ -382,6 +382,19 @@ def _run(argv, *, install):
     except EOFError:
         result.update(state="cancelled", stage="not_applied", message="Approval input closed; no installation or enrollment was applied.")
         return _finish(result, args)
+    except KeyboardInterrupt:
+        if isinstance(result.get("repository"), dict):
+            result["message"] = "Interrupted while reporting; the captured repository setup result is preserved."
+        elif result["stage"] == "repository_setup":
+            result.update(state="needs_attention", repository={"state": "uncertain"},
+                message="Runtime is installed; repository setup was interrupted and its outcome is unknown. Run the check_command before retrying enrollment.")
+        elif result["installation"] == "unchanged" or (
+                result["installation"] == "reused" and result["stage"] == "complete"):
+            result.update(state="cancelled", repository="not_checked" if args.repo is not None else "not_requested",
+                message="Interrupted; no installation or enrollment was applied.")
+        else:
+            result.update(state="unavailable", message="Interrupted; inspect current installed state before retrying.")
+        return _finish(result, args, 130)
     except (UpdateError, OSError, KeyError, TypeError, subprocess.TimeoutExpired) as exc:
         result.update(state="unavailable", message=str(exc)[:2000])
         return _finish(result, args, 1)
@@ -478,6 +491,7 @@ def _finish(result, args, code=0):
         print(json.dumps(result, sort_keys=True))
     else:
         text = _display_text
+        cancelled = result["state"] == "cancelled"
         state = result["state"].replace("_", " ")
         if result["state"] == "ready_for_setup":
             state = {"installed": "runtime installed", "updated": "runtime updated",
@@ -487,7 +501,7 @@ def _finish(result, args, code=0):
         setup = result.get("repository")
         if result.get("message"):
             print(text(result["message"]))
-            if not isinstance(setup, dict):
+            if not isinstance(setup, dict) and not cancelled:
                 if result.get("inspect_command"):
                     _display_command("Inspect", shlex.split(result["inspect_command"]))
                 else:
@@ -502,11 +516,11 @@ def _finish(result, args, code=0):
             print("Use the exact launcher path if multithread is not on PATH; shell configuration was not edited.")
         if isinstance(setup, dict):
             _display_setup(setup)
-            if result["state"] != "setup_checked" and result.get("check_command"):
+            if result["state"] != "setup_checked" and not cancelled and result.get("check_command"):
                 _display_command("Check repository before retrying setup", shlex.split(result["check_command"]))
         elif args.repo is not None:
             print("Repository setup: not checked for " + text(args.repo))
-            if result.get("check_command"):
+            if result.get("check_command") and not cancelled:
                 _display_command("Check repository", shlex.split(result["check_command"]))
             if result.get("setup_command") and result["state"] in {"up_to_date", "needs_attention"}:
                 _display_command("To explicitly enroll/check this repository", shlex.split(result["setup_command"]))
@@ -514,7 +528,7 @@ def _finish(result, args, code=0):
             print("Repository setup: not requested.")
             if result["state"] == "ready_for_setup" and result["installation"] == "installed":
                 print("Choose a repository for setup: " + PROJECT + "/blob/main/docs/SETUP.md")
-        if result.get("apply_argv"):
+        if result.get("apply_argv") and not cancelled:
             _display_command("Apply this exact update selection", result["apply_argv"])
         print("Provider authentication, hook delivery and tools are not checked by installation.")
     return code

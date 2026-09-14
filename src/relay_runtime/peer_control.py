@@ -399,14 +399,18 @@ class ObservedControl:
 
 
 def _message(path):
-    if path == "-":
-        body = sys.stdin.buffer.read(_MAX_TEXT + 1)
-    else:
-        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
-        with os.fdopen(fd, "rb") as stream:
-            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-                raise ControlError("Select a regular UTF-8 message file, or - for stdin.")
-            body = stream.read(_MAX_TEXT + 1)
+    try:
+        if path == "-":
+            body = sys.stdin.buffer.read(_MAX_TEXT + 1)
+        else:
+            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+            with os.fdopen(fd, "rb") as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    raise ControlError("Select a regular UTF-8 message file, or - for stdin. This invocation submitted no new input.")
+                body = stream.read(_MAX_TEXT + 1)
+    except OSError:
+        source = "stdin" if path == "-" else "message file"
+        raise ControlError(f"The {source} could not be read; check --message-file and its input source. This invocation submitted no new input. An earlier request with the same UUID may still exist; use its receipt to inspect it.") from None
     try:
         return _text(body.decode("utf-8"))
     except UnicodeError:
