@@ -64,8 +64,9 @@ while True:
     message = receive()
     method = message.get('method')
     if method == 'initialize':
-        send_result(message, {'userAgent': 'fixture-app-server', 'platformFamily': 'unix',
-                              'platformOs': 'linux', 'codexHome': os.environ['CODEX_HOME']})
+        send_result(message, spec.get('initialize_result', {
+            'userAgent': 'multithread/1.2.3 (FixtureOS 91.82.73; fixture) term (multithread; 9.8.7)',
+            'platformFamily': 'unix', 'platformOs': 'linux', 'codexHome': os.environ['CODEX_HOME']}))
     elif method == 'initialized':
         pass
     elif method == 'hooks/list':
@@ -225,6 +226,8 @@ class CodexProtocolTests(unittest.TestCase):
         self.assertEqual(THREAD, result["session_id"])
         self.assertEqual(TURN, result["turn_id"])
         self.assertFalse(result["needs_attention"])
+        self.assertEqual({"status": "reported", "version": "1.2.3",
+                          "source": "codex_initialize_user_agent"}, result["provider_version"])
         self.assertIn("--resume=" + THREAD, result["follow_up_preparation"]["argv_prefix"])
         self.assertEqual("not_checked", result["relay_acknowledgement"])
         self.assertEqual("not_checked", result["workflow_completion"])
@@ -249,6 +252,44 @@ class CodexProtocolTests(unittest.TestCase):
         self.assertEqual(0o700, directory.stat().st_mode & 0o777)
         for path in directory.rglob("*"):
             self.assertEqual(0o700 if path.is_dir() else 0o600, path.stat().st_mode & 0o777)
+
+    def test_initialization_version_selects_only_a_bounded_exact_leading_token(self):
+        cases = [
+            ({}, "not_reported", None),
+            ({"userAgent": None}, "not_reported", None),
+            ({"userAgent": "multithread/0.0.0"}, "reported", "0.0.0"),
+            ({"userAgent": "multithread/1.2.3-alpha.0 (FixtureOS; 9.8.7)"}, "reported", "1.2.3-alpha.0"),
+            ({"userAgent": "multithread/1.2.3-beta.4 (multithread; 9.8.7)"}, "reported", "1.2.3-beta.4"),
+            ({"userAgent": "multithread/1.2.3-rc.5"}, "reported", "1.2.3-rc.5"),
+        ]
+        for value in (
+                True, 123, {}, [], "", "1.2.3", "other/1.2.3", " other multithread/1.2.3",
+                "multithread/unknown (FixtureOS 1.2.3) (multithread; 9.8.7)",
+                "multithread/1.2.3-CANARY", "multithread/1.2.3+ARTIFICIAL-CANARY",
+                "multithread/01.2.3", "multithread/1.2.3-rc.01", "multithread/1000000.2.3",
+                "multithread/１.2.3", "multithread/1.2.3\nARTIFICIAL-CANARY",
+                "multithread/1.2.3 " + "x" * 1024):
+            cases.append(({"userAgent": value}, "unrecognized", None))
+        for metadata, status, version in cases:
+            with self.subTest(metadata=metadata):
+                self.configure(initialize_result=metadata)
+                code, observed, directory = self.invoke()
+                self.assertEqual(0, code, observed)
+                self.assertEqual("returned", observed["state"])
+                self.assertEqual(ANSWER, observed["result"])
+                self.assertFalse(observed["needs_attention"])
+                self.assertEqual({"status": status, "version": version,
+                                  "source": "codex_initialize_user_agent"}, observed["provider_version"])
+                self.assertEqual(observed, json.loads((directory / "result.json").read_text()))
+                self.assertNotIn("userAgent", observed)
+                self.assertEqual("call\n", self.calls.read_text())
+
+    def test_version_observation_requires_the_matched_successful_initialize_response(self):
+        for key in ("wrong_response_id", "error_response"):
+            with self.subTest(key=key):
+                self.configure(**{key: "initialize"})
+                observed = self.assert_attention(self.invoke())
+                self.assertNotIn("provider_version", observed)
 
     def test_resume_uses_exact_thread_without_latest_selection(self):
         code, result, _ = self.invoke("--resume", THREAD)

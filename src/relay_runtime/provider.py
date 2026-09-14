@@ -27,7 +27,7 @@ import tomllib
 import uuid
 from . import account_launcher
 from .native_io import (USAGE_SCOPES, MODEL_USAGE_SCOPES, COST_SCOPES,
-                        claude_measurements, measurement_scope)
+                        claude_measurements, measurement_scope, canonical_provider_version)
 
 
 class LaunchError(Exception):
@@ -862,6 +862,24 @@ def _report_scope(record, field, scopes):
     return next((key for key, text in scopes.items() if record.get(field) == text), "unknown")
 
 
+def _report_provider_version(record):
+    """Project only attributed, recognized metadata; never inspect today's CLI."""
+    result = {"status": "not_recorded", "version": None, "source": None}
+    if "provider_version" not in record:
+        return result
+    result["status"] = "invalid"
+    value = record["provider_version"]
+    source = {"codex": "codex_initialize_user_agent", "claude": "claude_system_init"}[record["provider"]]
+    if not isinstance(value, dict) or value.get("source") != source:
+        return result
+    status = value.get("status")
+    version = canonical_provider_version(value.get("version"))
+    if (status == "reported" and version is not None
+            or status in ("not_reported", "unrecognized") and value.get("version") is None):
+        return {"status": status, "version": version, "source": source}
+    return result
+
+
 def _report_projection(record):
     """Positive typed projection: never return arbitrary text or native objects."""
     if (record.get("provider") not in ("claude", "codex")
@@ -870,6 +888,7 @@ def _report_projection(record):
             or type(record.get("needs_attention")) is not bool):
         raise ValueError()
     call = {key: record[key] for key in ("provider", "state", "provider_started", "needs_attention")}
+    call["provider_version"] = _report_provider_version(record)
     call["elapsed_seconds"] = _report_number(record, "elapsed_seconds")
     call["process_exit_code"] = _report_number(record, "process_exit_code", integer=True, minimum=-(2**31))
     call["invalid_measurements"] = []
@@ -1018,7 +1037,13 @@ def report_main(argv=None):
         call = report["call"]
         if call is not None:
             print(f"Recorded call: {call['provider']} / {call['state']}")
+            version = call["provider_version"]
+            print("Recorded provider version: " + (
+                version["version"] + " (provider-reported; " + version["source"] + ")"
+                if version["status"] == "reported" else "unknown (" + version["status"] + ")"))
             print("Recorded task submission: " + call["task_submission"])
+            if call["task_delivery"] != "not_recorded":
+                print("Recorded task pipe delivery: " + call["task_delivery"] + " (not proof of consumption)")
             print("Recorded producer runtime identity: " + call["producer_runtime_identity"] + " (digest omitted)")
             print("Needs attention: " + ("yes" if call["needs_attention"] else "no"))
             if call["unavailable_stage"] != "unknown":

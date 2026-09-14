@@ -20,6 +20,7 @@ apply alongside these additional observations.
 | `requested_session_id` | The requested identity, when known before launch. It remains unverified until native output confirms it. A missing verified `session_id` does not prove that no session started; the requested identity alone is not a resume instruction. |
 | `observed_session_id` | If present on an identity mismatch, the unverified native identity reported by the provider. It is diagnostic, not a resume instruction; inspect the retained raw output. |
 | `resumed` | Whether this call requested resume (`true`) or a fresh session (`false`), not independent proof of restored history or a cache hit. |
+| `provider_version` | Optional provider-reported version from this call's native initialization, with `status`, `version` and `source`. It describes the responding process, not the current installation, model, Multithread release or an earlier turn in a resumed conversation. |
 | `task_delivery`, `native_input_unwritten_bytes` | When recorded, the task's pipe-write observation and the native input queue's remaining byte count. Count scope depends on capture mode; zero does not establish full task delivery. A complete pipe write does not prove native consumption. Missing fields remain unknown. |
 
 For ordinary Claude final-JSON calls, the byte count records initial task bytes
@@ -114,7 +115,7 @@ the report uses a positive, typed selection rather than trying to redact text.
 
 The output excludes task/answer text, arbitrary native diagnostics, paths,
 session/tool identifiers, hashes, model settings and usage maps. It includes the
-recorded call outcome, task-submission observation, process exit, attention flag,
+recorded call outcome, task-submission and pipe-delivery observations, process exit, attention flag,
 elapsed time, available provider turn/duration/cost estimates, counts of retained
 errors/denials/unsupported native requests and stdout observation limits.
 Starting a provider does not establish task submission. Codex records whether
@@ -144,9 +145,29 @@ verify native identity, check hooks/tools or ledger state, diagnose the cause,
 or certify workflow completion. Receipts without an explicit stdout observation
 or scope retain that uncertainty, including current streaming receipts whose
 capture scope is not recorded. A streaming capture is not labeled as a bounded
-read of a potentially larger retained file. The call-time Multithread version is unrecorded;
-some native receipts include a provider version, but this report excludes native
-strings and does not infer versions from the current installation. Starting in
+read of a potentially larger retained file.
+
+Starting in v0.4.9, the report also selects `provider_version` from an explicitly
+attributed initialization observation. Codex uses the leading build-version token
+in its App Server user agent (`source: codex_initialize_user_agent`); Claude
+`--live-input` uses its initialization version (`source: claude_system_init`).
+The surrounding user agent, platform details and client version are excluded.
+Only bounded numeric versions and recognized alpha/beta/rc numeric prereleases
+are shared; custom/build formats stay unknown. A `reported` value is a provider
+statement, not independent binary verification or a compatibility guarantee.
+
+Missing native metadata is `not_reported`; unsupported metadata is `unrecognized`.
+Both have a null version. Each Claude initialization replaces this observation,
+so an unavailable later version does not leave an earlier one appearing current.
+Old receipts and ordinary Claude final-JSON calls have no such initialization
+observation: the report says `not_recorded`, including when a legacy private
+`native_version` field exists. Malformed or wrongly attributed receipt metadata
+becomes `invalid`, without discarding the recorded call outcome. The reporter
+never runs a provider or infers a historical version from today's installation.
+Supply separately observed versions with their observation date when needed;
+upgrading now cannot establish which executable handled an old call.
+
+The call-time Multithread release version remains unrecorded. Starting in
 v0.4.4, private request/result receipts record `producer_runtime`: the retained
 runtime manifest SHA256 when this helper was loaded through the verified importer,
 or `unavailable`. That digest identifies the loaded payload, not a release version,
@@ -154,7 +175,7 @@ activation, provider, or hook invocation. Source-entry calls have no retained
 runtime identity; older receipts leave it unrecorded. The report exposes only
 `producer_runtime_identity` (`recorded`, `unavailable`, `not_recorded` or `invalid`),
 never the digest, and invalid auxiliary provenance does not discard a useful
-call outcome. Supply known versions separately and review the report
+call outcome. Review the report
 before sharing through the [support route](SUPPORT.md#useful-safe-support-information).
 
 ## Update a running peer

@@ -14,7 +14,8 @@ import time
 
 from .native_io import MAX_OUTPUT as _MAX_OUTPUT, Observation, ProtocolError as _ProtocolError, decode, identity as _identity
 from .native_io import (USAGE_SCOPES, measurement_error, measurement_number,
-                        measurement_fields, measurement_scope, replace_measurement_errors)
+                        measurement_fields, measurement_scope, replace_measurement_errors,
+                        provider_version_observation)
 
 
 _MAX_PENDING = 128
@@ -165,6 +166,8 @@ class _Driver:
         if not isinstance(result, dict):
             raise _ProtocolError("Malformed native result; inspect retained output.")
         if method == "initialize":
+            self.envelope["provider_version"] = provider_version_observation(
+                result.get("userAgent"), "codex_initialize_user_agent")
             self.send({"method": "initialized", "params": {}})
             if self.expected_hook is not None:
                 self.request("hooks/list", {"cwds": [self.repo]})
