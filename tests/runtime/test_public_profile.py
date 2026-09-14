@@ -139,6 +139,82 @@ print(json.dumps({"returncode": result.returncode, "stderr": result.stderr}))
 """
 
 
+_DISCOVERY = _COMMON + r"""
+assert not pathlib.Path("/source").exists() and not pathlib.Path("/bundle").exists()
+before = [snapshot(path) for path in (home, foreign, project)]
+status = call([str(launcher), "runtime", "status"])
+activation = status["activation"]
+assert activation["release_id"] == sys.argv[2], activation
+record = json.loads((installation / "releases" / sys.argv[2] / "release.json").read_text())
+for entry in (launcher, compatibility_launcher):
+    for arguments in (["--version"], ["--help"], ["runtime", "--help"]):
+        result = subprocess.run([str(entry), *arguments], text=True, capture_output=True, timeout=15)
+        assert result.returncode == 0 and not result.stderr, (arguments, result)
+        if arguments == ["--version"]:
+            assert result.stdout == "Multithread " + record["version"] + "\n", result.stdout
+        else:
+            assert "build-release" not in result.stdout, result.stdout
+            if arguments == ["--help"]:
+                for command in ("--version", "runtime status", "runtime inspect", "runtime --help"):
+                    assert "multithread " + command in result.stdout, result.stdout
+            else:
+                assert "status" in result.stdout and "inspect" in result.stdout, result.stdout
+    for arguments in (["--version", "status"], ["runtime", "build-release", "--output", "/tmp/forbidden-build",
+                                               "--version", "0.0.0-forbidden"]):
+        result = subprocess.run([str(entry), *arguments], text=True, capture_output=True, timeout=15)
+        assert result.returncode != 0 and result.stdout == "", (arguments, result)
+    assert call([str(entry), "runtime", "status"]) == status
+    assert call([str(entry), "runtime", "inspect"])["activation"] == activation
+if activation["previous_id"]:
+    stale = installation / "launches" / activation["previous_id"] / "relay"
+    for arguments in (["--version"], ["--help"]):
+        result = subprocess.run([str(stale), *arguments], text=True, capture_output=True, timeout=15)
+        assert result.returncode != 0 and result.stdout == "", result
+        assert "no longer active" in result.stderr, result.stderr
+assert [snapshot(path) for path in (home, foreign, project)] == before
+assert not (home / ".local/share/relay/enrollments").exists()
+assert not (project / ".relay").exists() and not pathlib.Path("/tmp/forbidden-build").exists()
+print(json.dumps({"version": record["version"], "activation_id": activation["activation_id"],
+                  "stale_launcher_refused": bool(activation["previous_id"])}))
+"""
+
+
+_DISCOVERY_TAMPER = _COMMON + r"""
+assert not pathlib.Path("/source").exists() and not pathlib.Path("/bundle").exists()
+retained = pathlib.Path(os.readlink(compatibility_launcher))
+release = installation / "releases" / sys.argv[2]
+targets = [
+    (retained.parent / "activation.json", b"{}"),
+    (release / "release.json", b"{}"),
+    (release / "payload/relay_runtime/cli.py", b"raise AssertionError('unverified payload executed')\n"),
+    (release / "bootstrap.py", b"raise AssertionError('unverified bootstrap executed')\n"),
+    (compatibility_launcher, "/tmp/unrecognized-command"),
+]
+for target, replacement in targets:
+    symlink = target.is_symlink()
+    original = os.readlink(target) if symlink else target.read_bytes()
+    if symlink:
+        target.unlink()
+        target.symlink_to(replacement)
+    else:
+        target.write_bytes(replacement)
+    before = [snapshot(path) for path in (home, foreign, project)]
+    for arguments in (["--version"], ["--help"], ["runtime", "--help"]):
+        result = subprocess.run([str(retained), *arguments], text=True, capture_output=True, timeout=15)
+        assert result.returncode != 0 and result.stdout == "", (target, arguments, result)
+        assert "verified launcher unavailable" in result.stderr, result.stderr
+        assert "AssertionError" not in result.stderr, result.stderr
+    assert [snapshot(path) for path in (home, foreign, project)] == before
+    if symlink:
+        target.unlink()
+        target.symlink_to(original)
+    else:
+        target.write_bytes(original)
+assert not (home / ".local/share/relay/enrollments").exists() and not (project / ".relay").exists()
+print(json.dumps({"refused_corruptions": len(targets)}))
+"""
+
+
 _RECOVER_DISABLE = _COMMON + r"""
 public = ["/usr/bin/python3", "-I", "-S", "-B", "/source/src/relay_bootstrap.py"]
 first = call([str(launcher), "runtime", "status"])["activation"]
@@ -466,6 +542,36 @@ class PublicProfileTests(unittest.TestCase):
         refused = self.sandbox(_TAMPER, release_id, include_source=False)
         self.assertNotEqual(0, refused["returncode"])
         self.assertEqual(["preserved"], sorted(p.name for p in self.foreign.iterdir()))
+
+    def test_public_offline_discovery_tracks_the_verified_release_and_active_launcher(self):
+        previous = None
+        for number in (1, 2):
+            version = "0.0." + str(number) + "-discovery-fixture"
+            self.bundle = self.base / ("discovery-bundle-" + str(number))
+            built = subprocess.run(
+                ["/usr/bin/python3", "-I", "-S", "-B", str(SOURCE / "relay_bootstrap.py"),
+                 "build-release", "--output", str(self.bundle), "--version", version],
+                env=self.env, text=True, capture_output=True, timeout=20)
+            self.assertEqual(0, built.returncode, built.stdout + built.stderr)
+            release_id = json.loads(built.stdout)["release_id"]
+            if previous is None:
+                self.sandbox(_INSTALL, release_id, include_source=True)
+            else:
+                switch = _COMMON + r"""
+current = call([str(launcher), "runtime", "status"])["activation"]
+result = call([str(launcher), "runtime", "install", "--release", "/bundle",
+               "--approve-sha256", sys.argv[2], "--expected-activation", current["activation_id"]])
+assert result["activation"]["previous_id"] == current["activation_id"], result
+print(json.dumps(result))
+"""
+                self.sandbox(switch, release_id, include_source=True)
+            result = self.sandbox(_DISCOVERY, release_id, include_source=False)
+            self.assertEqual(version, result["version"])
+            self.assertEqual(previous is not None, result["stale_launcher_refused"])
+            self.assertNotEqual(previous, result["activation_id"])
+            previous = result["activation_id"]
+        refused = self.sandbox(_DISCOVERY_TAMPER, release_id, include_source=False)
+        self.assertEqual(5, refused["refused_corruptions"])
 
 
 if __name__ == "__main__":

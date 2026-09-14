@@ -53,6 +53,7 @@ class CodexCleanupTests(unittest.TestCase):
         self.assertEqual(protocol.ANSWER, result["result"])
         self.assertTrue(result["needs_attention"])
         self.assertIn("server_cleanup", result)
+        self.assertEqual("shutdown_timeout", result["caller_stop_reason"])
         self.assert_observation(result, directory)
 
     def test_mailbox_closure_fault_does_not_erase_answer_or_prevent_owned_cleanup(self):

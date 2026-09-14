@@ -162,8 +162,10 @@ The task limit is 64 KiB. Larger artifacts belong in the repository and can be
 referenced by the task. The default timeout is 600 seconds; use `--timeout`
 with an integer from 1 through 3600 seconds to adjust it for the work.
 Multithread imposes no native turn cap by default. Supply `--max-turns` with an
-integer from 1 through 3600 for an explicit Claude turn limit. Codex performs one native turn
-with its normal tool loop. Choose bounds proportionate
+integer from 1 through 3600 for an explicit Claude agentic-turn limit. Source
+inspection and tool use can consume this budget before a final answer; it does
+not reserve a final-answer turn. Codex performs one native turn with its normal
+tool loop. Choose bounds proportionate
 to the task so the peer has time to inspect evidence and produce a useful
 answer. Multithread makes one invocation and never automatically retries it.
 
@@ -230,7 +232,10 @@ automatically resending. The support report includes these delivery observations
 without exposing task or answer text.
 
 After timeout or an uncertain result, inspect the local evidence and durable
-work before deciding whether to continue. Multithread stops only the process group
+work before deciding whether to continue. If only `requested_session_id` is
+recorded, check native session state before choosing resume or a fresh call;
+the requested identity does not confirm that a resumable session exists.
+Multithread stops only the process group
 created for that call. Killing a process does not prove that prior external
 operations were undone. Never release someone else's claim to tidy the result.
 

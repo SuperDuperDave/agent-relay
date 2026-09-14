@@ -37,6 +37,14 @@ def _checkpoint(stage):
 def _parser():
     parser = core_cli.build_parser()
     parser.description = "Explicitly enrolled, account-installed coordination ledger."
+    parser.formatter_class = argparse.RawDescriptionHelpFormatter
+    parser.epilog = (
+        "Installed release (offline; no workspace enrollment required):\n"
+        "  multithread --version        Show the verified release version\n"
+        "  multithread runtime status   Show the selected installation\n"
+        "  multithread runtime inspect  Diagnose installation and recovery state\n"
+        "  multithread runtime --help   List installation management commands"
+    )
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
             action.add_parser("init", help="explicitly enroll and initialize this workspace")

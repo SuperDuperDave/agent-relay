@@ -17,6 +17,7 @@ apply alongside these additional observations.
 
 | Field or state | Meaning |
 |---|---|
+| `caller_stop_reason` | When recorded: `timeout` means the call wait reached its limit; `interrupted` means caller execution was interrupted; `shutdown_timeout` means the wait for provider process exit expired. These describe the caller's observation, not the cause of provider silence or failure. A previously observed answer remains separately assessed. Old receipts may omit this field; elapsed time and exit code cannot reconstruct it. |
 | `requested_session_id` | The requested identity, when known before launch. It remains unverified until native output confirms it. A missing verified `session_id` does not prove that no session started; the requested identity alone is not a resume instruction. |
 | `observed_session_id` | If present on an identity mismatch, the unverified native identity reported by the provider. It is diagnostic, not a resume instruction; inspect the retained raw output. |
 | `resumed` | Whether this call requested resume (`true`) or a fresh session (`false`), not independent proof of restored history or a cache hit. |

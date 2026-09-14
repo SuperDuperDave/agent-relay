@@ -65,6 +65,10 @@ do not establish native v0.4.1 execution or independent onboarding.
 
 ## Diagnose without changing live configuration
 
+Use `~/.local/bin/multithread --version` for the verified installed version,
+without a network request or repository access. Root `--help` points to runtime
+status, inspection and command help. Version discovery does not check for updates.
+
 Start with `~/.local/bin/multithread setup --check --repo /absolute/checkout` for a
 read-only runtime/repository check and available provider launch plans. Add
 `--json` for structured stages and exact next commands. Provider authentication,

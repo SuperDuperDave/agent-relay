@@ -577,7 +577,7 @@ def peer_main(argv=None, *, report_entry=None):
     parser.add_argument("--resume", type=_native_identity, help="exact peer session identity from a previous result; no latest-session lookup")
     parser.add_argument("--output-dir", type=Path, help="new private evidence directory; default: retained temporary directory")
     parser.add_argument("--timeout", type=_positive, default=600, help="call wall-time limit in seconds, 1 through 3600 (default: 600)")
-    parser.add_argument("--max-turns", type=_positive, help="optional Claude native turn limit, 1 through 3600; omitted by default")
+    parser.add_argument("--max-turns", type=_positive, help="optional Claude agentic-turn cap, 1 through 3600; tool/source work can consume it before the final answer; no cap by default")
     parser.add_argument("--live-input", action="store_true", help="enable Claude session input while this call runs; queued input may start later turns within the call timeout. Codex always exposes exact-turn input")
     parser.add_argument("--dry-run", action="store_true", help="validate task/configuration and print a plan; no provider or evidence writes")
     parser.add_argument("--json", action="store_true", help="return a structured result; this DOES launch unless --dry-run is used; exit 0 means a returned turn, so also check needs_attention and task evidence")
@@ -742,6 +742,7 @@ def _run_peer(args, interruption):
                         _wait(process, grace, observer, feedback)
                     except subprocess.TimeoutExpired:
                         interruption["stopping"] = True
+                        envelope["caller_stop_reason"] = "shutdown_timeout"
                         _stop(process, observer)
                         envelope["server_cleanup"] = "owned process stopped after stdin closed"
                         envelope["needs_attention"] = True
@@ -751,12 +752,15 @@ def _run_peer(args, interruption):
                 interruption["stopping"] = True
             except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
                 interruption["stopping"] = True
+                interrupted = isinstance(exc, KeyboardInterrupt)
+                envelope["caller_stop_reason"] = "interrupted" if interrupted else "timeout"
                 if process is not None:
                     _stop(process, observer) if observer is not None else _stop(process)
                 if process is not None:
                     envelope["provider_started"] = True
-                _call_problem(envelope, "Call interrupted or timed out; inspect the observed turn, retained output and Multithread state before any follow-up.")
-                code = (128 + (interruption["signal"] or signal.SIGINT)) if isinstance(exc, KeyboardInterrupt) else 1
+                reason = "Call interrupted" if interrupted else "Call timed out"
+                _call_problem(envelope, reason + "; inspect the observed turn, retained output and Multithread state before any follow-up.")
+                code = (128 + (interruption["signal"] or signal.SIGINT)) if interrupted else 1
             finally:
                 envelope["elapsed_seconds"] = round(time.monotonic() - started, 3)
                 if process is not None:
@@ -773,8 +777,10 @@ def _run_peer(args, interruption):
         envelope["needs_attention"] = True
         envelope["message"] = (str(exc) if isinstance(exc, (LaunchError, ControlError)) else
                                f"Unavailable during {stage}; inspect the selected path or retained evidence.")
-    except (KeyboardInterrupt, EOFError):
+    except (KeyboardInterrupt, EOFError) as exc:
         interruption["stopping"] = True
+        if isinstance(exc, KeyboardInterrupt):
+            envelope.setdefault("caller_stop_reason", "interrupted")
         if process is not None:
             _stop(process, observer) if observer is not None else _stop(process)
             envelope["provider_started"] = True
@@ -880,6 +886,13 @@ def _report_provider_version(record):
     return result
 
 
+def _caller_stop_reason(record):
+    if "caller_stop_reason" not in record:
+        return "not_recorded"
+    reason = record["caller_stop_reason"]
+    return reason if reason in ("timeout", "interrupted", "shutdown_timeout") else "unknown"
+
+
 def _report_projection(record):
     """Positive typed projection: never return arbitrary text or native objects."""
     if (record.get("provider") not in ("claude", "codex")
@@ -889,6 +902,7 @@ def _report_projection(record):
         raise ValueError()
     call = {key: record[key] for key in ("provider", "state", "provider_started", "needs_attention")}
     call["provider_version"] = _report_provider_version(record)
+    call["caller_stop_reason"] = _caller_stop_reason(record)
     call["elapsed_seconds"] = _report_number(record, "elapsed_seconds")
     call["process_exit_code"] = _report_number(record, "process_exit_code", integer=True, minimum=-(2**31))
     call["invalid_measurements"] = []
@@ -1056,6 +1070,7 @@ def report_main(argv=None):
             if call["invalid_measurements"]:
                 print("Invalid recorded measurements (values omitted): " + ", ".join(call["invalid_measurements"]))
             print("Process exit: " + str(call["process_exit_code"] if call["process_exit_code"] is not None else "unknown"))
+            print("Caller stop reason: " + call["caller_stop_reason"] + "; not a diagnosis of provider behavior.")
             print("Elapsed seconds: " + str(call["elapsed_seconds"] if call["elapsed_seconds"] is not None else "unknown"))
             observation = call["stdout_observation"]
             print("Stdout observation: " + observation["status"] + (
@@ -1084,6 +1099,8 @@ def _display_peer(envelope, *, report_entry=None):
     print(f"Multithread peer: {envelope['state']}")
     if envelope.get("needs_attention"):
         print("Needs attention: yes.")
+    if "caller_stop_reason" in envelope:
+        print("Caller stop reason: " + _caller_stop_reason(envelope) + "; not a diagnosis of provider behavior.")
     if envelope["result"]:
         print(envelope["result"])
     elif isinstance(envelope.get("partial_result"), str):
@@ -1164,6 +1181,8 @@ def _display_peer(envelope, *, report_entry=None):
         if isinstance(requested, str) and requested:
             print(f"Requested session (unverified): {requested[:2000]}" +
                   (" [Detail truncated.]" if len(requested) > 2000 else ""))
+            if envelope.get("needs_attention"):
+                print("This requested identity does not confirm a resumable session. Check native session state before choosing resume or a fresh call.")
     observed_session = envelope.get("observed_session_id")
     if isinstance(observed_session, str) and observed_session:
         print(f"Observed session (unverified): {observed_session[:2000]}" +
