@@ -28,7 +28,7 @@ CALL_FIELDS = {
     "provider_measurement_scope", "cost_scope",
     "task_submission", "unsupported_native_request_count", "invalid_measurements",
     "task_delivery", "native_input_unwritten_bytes",
-    "producer_runtime_identity",
+    "producer_runtime_identity", "caller_stop_reason",
     "hook_delivery", "provider_tools", "relay_acknowledgement", "workflow_completion",
 }
 UNCHECKED = ("hook_delivery", "provider_tools", "relay_acknowledgement", "workflow_completion")
@@ -238,10 +238,31 @@ class PeerReportTests(unittest.TestCase):
         self.assertEqual("not_recorded", call["session_identity"])
         self.assertEqual("not_recorded", call["task_submission"])
         self.assertEqual("not_recorded", call["task_delivery"])
+        self.assertEqual("not_recorded", call["caller_stop_reason"])
         self.assertEqual([], call["invalid_measurements"])
         self.assertEqual({"status": "not_recorded", "bytes": None, "truncated": None,
                           "scope": "unknown"}, call["stdout_observation"])
         self.assertEqual(dict.fromkeys(("control", "recording", "cleanup"), "not_recorded"), call["faults"])
+
+    def test_caller_stop_reason_is_bounded_and_not_inferred_from_old_receipts(self):
+        for reason in ("timeout", "interrupted", "shutdown_timeout", CANARY, None, [], {}):
+            with self.subTest(reason=reason):
+                self.write(self.receipt(state="uncertain", needs_attention=True,
+                                        caller_stop_reason=reason))
+                before = self.snapshot()
+                code, report = self.invoke()
+                expected = reason if reason in ("timeout", "interrupted", "shutdown_timeout") else "unknown"
+                self.assertEqual(0, code)
+                self.assertEqual(expected, report["call"]["caller_stop_reason"])
+                code, output = self.invoke(structured=False)
+                self.assertEqual(0, code)
+                self.assertIn("Caller stop reason: " + expected, output)
+                self.assertIn("not a diagnosis of provider behavior", output)
+                self.assertNotIn(CANARY, json.dumps(report) + output)
+                self.assertEqual(before, self.snapshot())
+        call = self.reported(state="uncertain", needs_attention=True,
+                             elapsed_seconds=240.874, process_exit_code=143)
+        self.assertEqual("not_recorded", call["caller_stop_reason"])
 
     def test_report_success_is_independent_of_the_observed_call_state(self):
         for client in ("claude", "codex"):

@@ -173,3 +173,4 @@ class ClaudeIntegrationTests(unittest.TestCase):
         self.assertEqual('uncertain', value['state'])
         self.assertTrue(value['needs_attention'])
         self.assertIn('server_cleanup', value)
+        self.assertEqual('shutdown_timeout', value['caller_stop_reason'])

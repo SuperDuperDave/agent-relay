@@ -1662,6 +1662,9 @@ def run_installed(release_id, activation_id, argv):
     release = installation.release(release_id)
     if globals().get("__relay_bootstrap_sha256__") != release.bootstrap_sha:
         raise BootstrapError("installed execution requires the retained verified launcher")
+    if argv == ["--version"]:
+        print("Multithread " + release.version)
+        return 0
     if argv and argv[0] == "runtime":
         return main(argv[1:])
     runtime = VerifiedRuntime(hashlib.sha256(release.runtime_manifest).hexdigest(),
@@ -1675,9 +1678,10 @@ def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(prog="multithread runtime", description="Offline, explicit Multithread release installation.")
     commands = parser.add_subparsers(dest="command", required=True)
-    build = commands.add_parser("build-release", help="build an unapproved closed local bundle")
-    build.add_argument("--output", required=True)
-    build.add_argument("--version", required=True)
+    if not globals().get("__relay_bootstrap_sha256__"):
+        build = commands.add_parser("build-release", help="build an unapproved closed local bundle")
+        build.add_argument("--output", required=True)
+        build.add_argument("--version", required=True)
     for name in ("plan", "install", "recover-plan", "recover-install"):
         action = commands.add_parser(name)
         action.add_argument("--release", required=True)
